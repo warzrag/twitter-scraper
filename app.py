@@ -314,6 +314,35 @@ async def history_clear():
     return {"cleared": True}
 
 
+class PreviewRequest(BaseModel):
+    targets: list
+    cookies: list
+
+
+@app.post("/api/queue/preview")
+async def queue_preview(request: PreviewRequest):
+    """Renvoie le nombre de followers pour chaque cible."""
+    cookies = parse_cookies(request.cookies)
+    scraper = TwitterScraper(cookies=cookies, min_wait=0.5, max_wait=1.0)
+    out = []
+    try:
+        for t in request.targets:
+            t = t.strip().lstrip("@").replace("https://x.com/", "").replace("https://twitter.com/", "")
+            if not t:
+                continue
+            try:
+                info = scraper.get_user_info(t)
+                if info:
+                    out.append({"target": t, "followers": info.get("followers_count", 0), "found": True})
+                else:
+                    out.append({"target": t, "followers": 0, "found": False})
+            except Exception:
+                out.append({"target": t, "followers": 0, "found": False})
+    finally:
+        scraper.close()
+    return {"targets": out, "total_followers": sum(t["followers"] for t in out)}
+
+
 class QueueStartRequest(BaseModel):
     targets: list  # liste de usernames cibles
     max_per_target: Optional[int] = None  # None = tout

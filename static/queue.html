@@ -82,7 +82,11 @@ textarea { min-height: 120px; font-family: monospace; }
     <label class="label">Cookies pour scrape (JSON array)</label>
     <textarea id="cookies" placeholder='[{"name":"auth_token","value":"..."},{"name":"ct0","value":"..."}]' style="min-height:80px"></textarea>
 
-    <button class="btn" id="startBtn" onclick="startQueue()" style="margin-top:16px">🚀 Lancer la queue</button>
+    <div style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn" onclick="previewTargets()" style="flex:1;background:rgba(255,255,255,0.08)">🔍 Analyser les cibles</button>
+      <button class="btn" id="startBtn" onclick="startQueue()" style="flex:2">🚀 Lancer la queue</button>
+    </div>
+    <div id="previewResult" style="margin-top:12px"></div>
   </div>
 
   <div class="card">
@@ -260,6 +264,58 @@ async function addAccounts() {
   document.getElementById('addResult').style.color = '#34d399';
   if (resp.added > 0) {
     document.getElementById('newAccounts').value = '';
+  }
+}
+
+async function previewTargets() {
+  const targets = document.getElementById('targets').value.split('\n').map(s => s.trim()).filter(s => s);
+  if (targets.length === 0) { alert('Colle au moins 1 cible'); return; }
+  let cookies;
+  try { cookies = JSON.parse(document.getElementById('cookies').value); }
+  catch { alert('Cookies invalides'); return; }
+
+  const result = document.getElementById('previewResult');
+  while (result.firstChild) result.removeChild(result.firstChild);
+  const loading = document.createElement('div');
+  loading.textContent = '⏳ Analyse en cours...';
+  loading.style.cssText = 'color:#9ca3af;font-size:13px;text-align:center;padding:12px';
+  result.appendChild(loading);
+
+  const resp = await fetch('/api/queue/preview', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({targets, cookies})
+  }).then(r => r.json());
+
+  while (result.firstChild) result.removeChild(result.firstChild);
+
+  const totalBox = document.createElement('div');
+  totalBox.style.cssText = 'background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:10px;padding:14px;margin-bottom:10px;text-align:center';
+  const totalLabel = document.createElement('div');
+  totalLabel.textContent = 'Total followers à scraper';
+  totalLabel.style.cssText = 'font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
+  const totalVal = document.createElement('div');
+  totalVal.textContent = resp.total_followers.toLocaleString('fr-FR');
+  totalVal.style.cssText = 'font-size:28px;font-weight:700;color:#a78bfa';
+  const estimate = document.createElement('div');
+  const hours = Math.round((resp.total_followers * 0.8) / 7000 * 10) / 10;
+  const realValidated = Math.round(resp.total_followers * 0.06);
+  estimate.textContent = '≈ ' + realValidated.toLocaleString('fr-FR') + ' validés (~' + hours + 'h de queue)';
+  estimate.style.cssText = 'font-size:12px;color:#9ca3af;margin-top:4px';
+  totalBox.appendChild(totalLabel); totalBox.appendChild(totalVal); totalBox.appendChild(estimate);
+  result.appendChild(totalBox);
+
+  for (const t of resp.targets) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;padding:8px 12px;background:rgba(0,0,0,0.2);border-radius:8px;margin-bottom:4px;font-size:13px';
+    const name = document.createElement('span');
+    name.textContent = '@' + t.target;
+    name.style.cssText = 'color:' + (t.found ? '#fff' : '#f87171');
+    const count = document.createElement('span');
+    count.textContent = t.found ? t.followers.toLocaleString('fr-FR') + ' followers' : '❌ introuvable';
+    count.style.cssText = 'color:#a78bfa;font-weight:600';
+    row.appendChild(name); row.appendChild(count);
+    result.appendChild(row);
   }
 }
 
