@@ -445,14 +445,16 @@ async def queue_start(request: QueueStartRequest):
             async with sem:
                 await process_target(t)
         await asyncio.gather(*[run(t) for t in targets])
-        # dedup final
         queue_jobs[qid]["all_validated"] = list(dict.fromkeys(queue_jobs[qid]["all_validated"]))
         queue_jobs[qid]["total_validated"] = len(queue_jobs[qid]["all_validated"])
-        # Sauvegarde dans l'historique pour eviter de les ressortir au prochain run
         append_history(queue_jobs[qid]["all_validated"])
         queue_jobs[qid]["status"] = "completed"
 
-    asyncio.create_task(orchestrator())
+    # Lance dans un thread pour ne pas bloquer l'event loop avec httpx sync
+    import threading
+    def run_in_thread():
+        asyncio.run(orchestrator())
+    threading.Thread(target=run_in_thread, daemon=True).start()
     return {"queue_id": qid, "targets_count": len(targets)}
 
 
