@@ -65,8 +65,24 @@ textarea { min-height: 120px; font-family: monospace; }
 
   <div class="card" id="setupCard">
     <h3>Configuration</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <div>
+        <label class="label">🎯 Objectif validés</label>
+        <input type="number" id="goal" value="5000" min="100" step="500" oninput="updateGoal()">
+      </div>
+      <div>
+        <label class="label">📊 Tes cibles</label>
+        <div id="goalStatus" style="padding:13px 14px;border-radius:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);font-size:13px;color:#9ca3af">Ajoute des cibles ↓</div>
+      </div>
+    </div>
+
+    <div id="goalBarWrap" style="background:rgba(255,255,255,0.05);border-radius:100px;height:8px;overflow:hidden;margin-bottom:16px;display:none">
+      <div id="goalBar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);width:0%;transition:width 0.4s ease"></div>
+    </div>
+
     <label class="label">Cibles (1 @ par ligne)</label>
-    <textarea id="targets" placeholder="SharonSurX&#10;autrecompte&#10;encore_un_autre"></textarea>
+    <textarea id="targets" placeholder="SharonSurX&#10;autrecompte&#10;encore_un_autre" oninput="debouncedAnalyze()"></textarea>
+    <div id="targetsBreakdown" style="margin-top:10px"></div>
 
     <div class="row" style="margin-top:16px">
       <div>
@@ -265,6 +281,94 @@ async function addAccounts() {
   if (resp.added > 0) {
     document.getElementById('newAccounts').value = '';
   }
+}
+
+const YIELD_RATE = 0.06; // 6% scrape → validé en moyenne
+let analyzeTimer = null;
+let lastAnalysis = { total_followers: 0, targets: [] };
+
+function debouncedAnalyze() {
+  clearTimeout(analyzeTimer);
+  analyzeTimer = setTimeout(analyzeTargetsAuto, 1200);
+}
+
+async function analyzeTargetsAuto() {
+  const lines = document.getElementById('targets').value.split('\n').map(s => s.trim()).filter(s => s);
+  if (lines.length === 0) {
+    lastAnalysis = { total_followers: 0, targets: [] };
+    updateGoal();
+    const br = document.getElementById('targetsBreakdown');
+    while (br.firstChild) br.removeChild(br.firstChild);
+    return;
+  }
+  let cookies;
+  try { cookies = JSON.parse(document.getElementById('cookies').value); }
+  catch { return; } // pas de cookies valides, on analyse pas
+
+  const resp = await fetch('/api/queue/preview', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({targets: lines, cookies})
+  }).then(r => r.json()).catch(() => null);
+
+  if (!resp) return;
+  lastAnalysis = resp;
+  renderBreakdown();
+  updateGoal();
+}
+
+function renderBreakdown() {
+  const br = document.getElementById('targetsBreakdown');
+  while (br.firstChild) br.removeChild(br.firstChild);
+  for (const t of lastAnalysis.targets) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;padding:6px 12px;background:rgba(0,0,0,0.15);border-radius:6px;margin-bottom:3px;font-size:12px';
+    const name = document.createElement('span');
+    name.textContent = '@' + t.target;
+    name.style.color = t.found ? '#fff' : '#f87171';
+    const count = document.createElement('span');
+    count.textContent = t.found ? t.followers.toLocaleString('fr-FR') + ' followers' : '❌ introuvable';
+    count.style.cssText = 'color:#a78bfa;font-weight:600';
+    row.appendChild(name); row.appendChild(count);
+    br.appendChild(row);
+  }
+}
+
+function updateGoal() {
+  const goal = parseInt(document.getElementById('goal').value) || 0;
+  const totalFollowers = lastAnalysis.total_followers || 0;
+  const needed = Math.ceil(goal / YIELD_RATE);
+  const pct = needed > 0 ? Math.min(100, Math.round((totalFollowers / needed) * 100)) : 0;
+  const estValidated = Math.round(totalFollowers * YIELD_RATE);
+
+  const st = document.getElementById('goalStatus');
+  while (st.firstChild) st.removeChild(st.firstChild);
+
+  if (totalFollowers === 0) {
+    st.textContent = 'Ajoute des cibles ↓';
+    st.style.color = '#9ca3af';
+    document.getElementById('goalBarWrap').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('goalBarWrap').style.display = 'block';
+  document.getElementById('goalBar').style.width = pct + '%';
+
+  const main = document.createElement('div');
+  main.style.cssText = 'font-weight:700;font-size:14px;margin-bottom:2px';
+  if (pct >= 100) {
+    main.textContent = '✅ Objectif atteint';
+    main.style.color = '#34d399';
+  } else {
+    main.textContent = '~' + estValidated.toLocaleString('fr-FR') + ' validés estimés';
+    main.style.color = '#a78bfa';
+  }
+  const sub = document.createElement('div');
+  sub.style.cssText = 'font-size:11px;color:#9ca3af';
+  const missing = Math.max(0, needed - totalFollowers);
+  sub.textContent = totalFollowers.toLocaleString('fr-FR') + ' / ' + needed.toLocaleString('fr-FR') + ' followers (' + (missing > 0 ? 'manque ' + missing.toLocaleString('fr-FR') : 'objectif atteint') + ')';
+  st.appendChild(main); st.appendChild(sub);
+  st.style.color = '#e7e9ea';
 }
 
 async function previewTargets() {
