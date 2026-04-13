@@ -13,9 +13,13 @@ from typing import Optional
 import csv
 import io
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+import os
+import secrets
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, Response
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 import httpx
 
@@ -26,6 +30,42 @@ from scraper_apify import ApifyStyleScraper
 from cookie_pool import CookiePool
 
 app = FastAPI(title="Twitter/X Scraper", version="1.0.0")
+
+# ========== AUTH ==========
+AUTH_USER = os.environ.get("AUTH_USER", "admin")
+AUTH_PASS = os.environ.get("AUTH_PASS", "changeme")
+security = HTTPBasic()
+
+
+def check_auth(credentials: HTTPBasicCredentials = Depends(security)):
+    ok_user = secrets.compare_digest(credentials.username, AUTH_USER)
+    ok_pass = secrets.compare_digest(credentials.password, AUTH_PASS)
+    if not (ok_user and ok_pass):
+        raise HTTPException(status_code=401, detail="Invalid credentials", headers={"WWW-Authenticate": "Basic"})
+    return credentials.username
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # WebSocket exclu (pas besoin d'auth ici, ou utiliser une autre methode)
+        if request.url.path.startswith("/ws"):
+            return await call_next(request)
+        auth = request.headers.get("authorization")
+        if not auth or not auth.lower().startswith("basic "):
+            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Twitter Scraper"'})
+        import base64
+        try:
+            decoded = base64.b64decode(auth.split(" ", 1)[1]).decode()
+            user, _, pwd = decoded.partition(":")
+        except Exception:
+            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Twitter Scraper"'})
+        if not (secrets.compare_digest(user, AUTH_USER) and secrets.compare_digest(pwd, AUTH_PASS)):
+            return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Twitter Scraper"'})
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
+# ========== /AUTH ==========
 
 # Stockage des jobs en cours
 active_jobs = {}
