@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extracteur de usernames</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 1200px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+        }
+
+        .input-section {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            color: #555;
+            font-weight: 600;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 150px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: monospace;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-extract {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-extract:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-copy {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .btn-copy:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(76, 175, 80, 0.4);
+        }
+
+        .btn-copy:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .stats {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-around;
+            text-align: center;
+        }
+
+        .stat-item {
+            flex: 1;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .results-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .result-section {
+            background: #f9f9f9;
+            border-radius: 10px;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .result-title {
+            font-weight: bold;
+            color: #333;
+            font-size: 16px;
+        }
+
+        .result-count {
+            background: #667eea;
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+        }
+
+        .result-content {
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+            white-space: pre-wrap;
+        }
+
+        .copy-btn-small {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 5px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .copy-btn-small:hover {
+            background: #45a049;
+        }
+
+        .success-message {
+            background: #4CAF50;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .error-message {
+            background: #f44336;
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+            margin-top: 10px;
+            display: none;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            .results-container {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link">← Retour au Scraper</a>
+        <h1>🐦 Extracteur de Usernames Twitter</h1>
+
+        <div class="input-section">
+            <label for="jsonInput">Collez vos données JSON (depuis Preview) :</label>
+            <textarea id="jsonInput" placeholder='[{"can_dm": false, "screen_name": "username1"}, ...]'></textarea>
+        </div>
+
+        <div class="button-group">
+            <button class="btn-extract" onclick="extractUsernames()">Extraire les usernames</button>
+        </div>
+
+        <div id="stats" class="stats" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-number" id="totalCount">0</div>
+                <div class="stat-label">Total</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="dmCount">0</div>
+                <div class="stat-label">Peut DM</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="noDmCount">0</div>
+                <div class="stat-label">Ne peut pas DM</div>
+            </div>
+        </div>
+
+        <div class="results-container" id="resultsContainer" style="display: none;">
+            <div class="result-section">
+                <div class="result-header">
+                    <span class="result-title">✅ Peut recevoir DM</span>
+                    <button class="copy-btn-small" onclick="copyList('dm')">Copier</button>
+                </div>
+                <div class="result-count" id="dmListCount">0 usernames</div>
+                <div class="result-content" id="dmList"></div>
+            </div>
+
+            <div class="result-section">
+                <div class="result-header">
+                    <span class="result-title">❌ Ne peut pas recevoir DM</span>
+                    <button class="copy-btn-small" onclick="copyList('noDm')">Copier</button>
+                </div>
+                <div class="result-count" id="noDmListCount">0 usernames</div>
+                <div class="result-content" id="noDmList"></div>
+            </div>
+        </div>
+
+        <div class="success-message" id="successMsg">✓ Copié dans le presse-papier !</div>
+        <div class="error-message" id="errorMsg"></div>
+    </div>
+
+    <script>
+        let dmUsernames = [];
+        let noDmUsernames = [];
+
+        function extractUsernames() {
+            const input = document.getElementById('jsonInput').value.trim();
+            const errorMsg = document.getElementById('errorMsg');
+            const statsDiv = document.getElementById('stats');
+            const resultsContainer = document.getElementById('resultsContainer');
+
+            errorMsg.style.display = 'none';
+
+            if (!input) {
+                showError('Veuillez coller vos données JSON');
+                return;
+            }
+
+            try {
+                const data = JSON.parse(input);
+
+                if (!Array.isArray(data)) {
+                    showError('Le JSON doit être un tableau');
+                    return;
+                }
+
+                // Séparer les usernames selon can_dm
+                dmUsernames = data
+                    .filter(item => item.can_dm === true && item.screen_name)
+                    .map(item => item.screen_name);
+
+                noDmUsernames = data
+                    .filter(item => item.can_dm === false && item.screen_name)
+                    .map(item => item.screen_name);
+
+                if (dmUsernames.length === 0 && noDmUsernames.length === 0) {
+                    showError('Aucun username trouvé dans les données');
+                    return;
+                }
+
+                // Afficher les résultats
+                document.getElementById('dmList').textContent = dmUsernames.join('\n');
+                document.getElementById('noDmList').textContent = noDmUsernames.join('\n');
+
+                // Mettre à jour les compteurs
+                document.getElementById('dmListCount').textContent = `${dmUsernames.length} usernames`;
+                document.getElementById('noDmListCount').textContent = `${noDmUsernames.length} usernames`;
+
+                // Statistiques globales
+                document.getElementById('totalCount').textContent = dmUsernames.length + noDmUsernames.length;
+                document.getElementById('dmCount').textContent = dmUsernames.length;
+                document.getElementById('noDmCount').textContent = noDmUsernames.length;
+
+                statsDiv.style.display = 'flex';
+                resultsContainer.style.display = 'grid';
+
+            } catch (error) {
+                showError('Erreur de parsing JSON : ' + error.message);
+            }
+        }
+
+        function copyList(type) {
+            const text = type === 'dm' ? dmUsernames.join('\n') : noDmUsernames.join('\n');
+
+            if (!text) {
+                showError('Aucune donnée à copier');
+                return;
+            }
+
+            navigator.clipboard.writeText(text).then(() => {
+                const successMsg = document.getElementById('successMsg');
+                successMsg.textContent = type === 'dm'
+                    ? '✓ Liste "Peut DM" copiée !'
+                    : '✓ Liste "Ne peut pas DM" copiée !';
+                successMsg.style.display = 'block';
+                setTimeout(() => {
+                    successMsg.style.display = 'none';
+                }, 2000);
+            }).catch(err => {
+                showError('Erreur lors de la copie : ' + err.message);
+            });
+        }
+
+        function showError(message) {
+            const errorMsg = document.getElementById('errorMsg');
+            errorMsg.textContent = message;
+            errorMsg.style.display = 'block';
+            setTimeout(() => {
+                errorMsg.style.display = 'none';
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

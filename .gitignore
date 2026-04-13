@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+venv/
+
+# Données sensibles - NE JAMAIS COMMIT
+cookies_pool.json
+cookies_pool_state.json
+cookies_clean.json
+scraped_history.txt
+accounts.txt
+proxies.txt
+credentials.txt
+
+# Debug
+debug_*.json
+debug_*.txt
+
+# Outputs
+output_*.csv
+*.csv

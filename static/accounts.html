@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Gestion des comptes Twitter</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system,BlinkMacSystemFont,sans-serif; background: linear-gradient(135deg,#0a0e1a,#0f1420); color: #e7e9ea; min-height: 100vh; padding: 30px; }
+.wrap { max-width: 1000px; margin: 0 auto; }
+h1 { font-size: 28px; margin-bottom: 8px; background: linear-gradient(90deg,#3b82f6,#8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.sub { color: #9ca3af; font-size: 14px; margin-bottom: 32px; }
+.nav { display: flex; gap: 16px; margin-bottom: 24px; }
+.nav a { color: #9ca3af; text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 8px; }
+.nav a:hover { background: rgba(255,255,255,0.05); color: #fff; }
+.nav a.active { background: rgba(139,92,246,0.15); color: #a78bfa; }
+.card { background: linear-gradient(135deg,#1a1f2e,#0f1420); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+.card h3 { font-size: 16px; margin-bottom: 12px; color: #fff; }
+textarea { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px; color: #e7e9ea; font-size: 13px; font-family: monospace; outline: none; resize: vertical; min-height: 140px; }
+textarea:focus { border-color: #3b82f6; }
+.btn { background: linear-gradient(135deg,#34d399,#10b981); color: #fff; border: none; border-radius: 12px; padding: 14px 24px; font-size: 15px; font-weight: 700; cursor: pointer; }
+.btn:hover { transform: translateY(-1px); }
+.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; margin-bottom: 24px; }
+.stat { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 20px; text-align: center; }
+.stat-val { font-size: 32px; font-weight: 700; margin-bottom: 4px; }
+.stat-lab { font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; }
+.account-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr 80px; gap: 12px; padding: 14px 16px; background: rgba(0,0,0,0.2); border-radius: 10px; margin-bottom: 6px; align-items: center; font-size: 13px; }
+.account-row:hover { background: rgba(0,0,0,0.35); }
+.name { font-weight: 700; color: #fff; }
+.status-ok { color: #34d399; }
+.status-cooldown { color: #f87171; }
+.del { background: transparent; border: 1px solid rgba(248,113,113,0.3); color: #f87171; padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 11px; }
+.del:hover { background: rgba(248,113,113,0.1); }
+.hint { color: #6b7280; font-size: 12px; margin-top: 8px; }
+code { background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; font-size: 11px; color: #a78bfa; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="nav">
+    <a href="/">Scraper</a>
+    <a href="/queue">Queue</a>
+    <a href="/accounts" class="active">Comptes</a>
+  </nav>
+  <h1>🍪 Gestion des comptes Twitter</h1>
+  <p class="sub">Ajoute, supprime et surveille les comptes du pool de validation.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="stat-val" id="sTotal" style="color:#60a5fa">0</div><div class="stat-lab">Total comptes</div></div>
+    <div class="stat"><div class="stat-val" id="sActive" style="color:#34d399">0</div><div class="stat-lab">Actifs</div></div>
+    <div class="stat"><div class="stat-val" id="sCooldown" style="color:#f87171">0</div><div class="stat-lab">En cooldown</div></div>
+  </div>
+
+  <div class="card">
+    <h3>➕ Ajouter des comptes</h3>
+    <p class="hint">Format (1 ligne/compte) : <code>user:password:email:mdp_email:ct0:auth_token:totp</code></p>
+    <textarea id="newAccounts" placeholder="user1:pass1:email1:mdpmail1:ct0...:auth_token:totp&#10;user2:pass2:email2..."></textarea>
+    <button class="btn" onclick="addAccounts()" style="margin-top:12px">➕ Ajouter au pool</button>
+    <div id="addResult" class="hint" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <h3>📋 Liste des comptes</h3>
+    <div id="accountsList"></div>
+  </div>
+</div>
+
+<script>
+async function refresh() {
+  const p = await fetch('/api/pool/status').then(r => r.json());
+  const accs = p.accounts || [];
+  const active = accs.filter(a => a.available).length;
+  const cd = accs.filter(a => !a.available).length;
+
+  document.getElementById('sTotal').textContent = p.total || 0;
+  document.getElementById('sActive').textContent = active;
+  document.getElementById('sCooldown').textContent = cd;
+
+  const list = document.getElementById('accountsList');
+  while (list.firstChild) list.removeChild(list.firstChild);
+
+  if (accs.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Aucun compte dans le pool. Ajoute-en ci-dessus.';
+    empty.style.cssText = 'text-align:center;color:#6b7280;padding:40px;font-size:14px';
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const acc of accs) {
+    const row = document.createElement('div');
+    row.className = 'account-row';
+
+    const name = document.createElement('div'); name.className = 'name'; name.textContent = '@' + acc.user;
+    const status = document.createElement('div');
+    status.className = acc.available ? 'status-ok' : 'status-cooldown';
+    status.textContent = acc.available ? '✓ Actif' : '⏸ Cooldown';
+    const reqs = document.createElement('div'); reqs.textContent = acc.requests_today + ' req/jour';
+    const err = document.createElement('div');
+    err.textContent = acc.last_error ? '⚠️ ' + acc.last_error.split(' @ ')[0] : '—';
+    err.style.color = acc.last_error ? '#f87171' : '#6b7280';
+    err.style.fontSize = '11px';
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = 'Supprimer';
+    del.onclick = () => removeAccount(acc.user);
+
+    row.appendChild(name); row.appendChild(status); row.appendChild(reqs); row.appendChild(err); row.appendChild(del);
+    list.appendChild(row);
+  }
+}
+
+async function addAccounts() {
+  const raw = document.getElementById('newAccounts').value;
+  if (!raw.trim()) { alert('Colle au moins 1 ligne'); return; }
+  const resp = await fetch('/api/pool/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({raw})
+  }).then(r => r.json());
+  const msg = '✅ ' + resp.added + ' ajoutés • ' + resp.duplicates + ' doublons • ' + resp.invalid + ' invalides • Pool total : ' + resp.total;
+  const el = document.getElementById('addResult');
+  el.textContent = msg;
+  el.style.color = '#34d399';
+  if (resp.added > 0) {
+    document.getElementById('newAccounts').value = '';
+    refresh();
+  }
+}
+
+async function removeAccount(user) {
+  if (!confirm('Supprimer @' + user + ' du pool ?')) return;
+  await fetch('/api/pool/remove?user=' + encodeURIComponent(user), {method: 'POST'});
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "cookies": [
+    {
+      "domain": ".x.com",
+      "name": "auth_token",
+      "value": "TON_AUTH_TOKEN_ICI"
+    },
+    {
+      "domain": ".x.com",
+      "name": "ct0",
+      "value": "TON_CT0_ICI"
+    }
+  ],
+  "proxy": null
+}

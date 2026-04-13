@@ -1,0 +1,1711 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twitter/X Scraper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .twitter-blue { color: #1DA1F2; }
+        .twitter-blue-bg { background-color: #1DA1F2; }
+        .pulse-animation { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .user-card { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.1); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 4px; }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen text-white">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold mb-2">
+                <span class="twitter-blue">Twitter/X</span> Scraper
+            </h1>
+            <p class="text-gray-400">Clone gratuit de l'Actor Apify - Scrape followers & following</p>
+
+            <!-- Tools Links -->
+            <div class="mt-4 flex flex-wrap justify-center gap-3">
+                <a href="/dm-checker" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 transition text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    DM Checker
+                </a>
+                <a href="/extractor" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-500/20 border border-purple-500/50 text-purple-400 hover:bg-purple-500/30 transition text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Extracteur JSON
+                </a>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex justify-center gap-4 mt-6">
+                <button onclick="showTab('scraper')" id="tabScraper" class="tab-btn active px-6 py-2 rounded-lg bg-blue-500/20 border border-blue-500/50 text-blue-400 font-medium transition">
+                    🔍 Scraper
+                </button>
+                <button onclick="showTab('leads')" id="tabLeads" class="tab-btn px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition">
+                    📋 Mes Leads <span id="leadsCount" class="ml-1 bg-green-500 text-white text-xs px-2 py-0.5 rounded-full">0</span>
+                </button>
+                <button onclick="showTab('blacklist')" id="tabBlacklist" class="tab-btn px-6 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition">
+                    🚫 Déjà scrapés <span id="blacklistCount" class="ml-1 bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">0</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab Scraper -->
+        <div id="scraperTab" class="grid lg:grid-cols-2 gap-8">
+            <!-- Formulaire -->
+            <div class="glass rounded-2xl p-6">
+                <h2 class="text-xl font-semibold mb-6 flex items-center gap-2">
+                    <svg class="w-6 h-6 twitter-blue" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    Configuration
+                </h2>
+
+                <form id="scrapeForm" class="space-y-5">
+                    <!-- Target -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">
+                            Compte cible (celui dont tu veux scraper les followers)
+                        </label>
+                        <input type="text" id="target" placeholder="@Softiepinkxo ou https://x.com/Softiepinkxo"
+                               class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 focus:border-blue-500 focus:outline-none transition" required>
+                        <p class="text-xs text-gray-500 mt-1">Ex: @elonmusk pour récupérer SES followers</p>
+                    </div>
+
+                    <!-- List Type -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Type de liste</label>
+                        <div class="flex gap-4">
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="list_type" value="followers" checked class="hidden peer">
+                                <div class="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-center peer-checked:border-blue-500 peer-checked:bg-blue-500/20 transition">
+                                    Followers
+                                </div>
+                            </label>
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="list_type" value="following" class="hidden peer">
+                                <div class="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-center peer-checked:border-blue-500 peer-checked:bg-blue-500/20 transition">
+                                    Following
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Mode Scraping -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Mode de scraping</label>
+                        <div class="flex gap-4">
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="scrape_mode" value="api" checked class="hidden peer">
+                                <div class="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-center peer-checked:border-blue-500 peer-checked:bg-blue-500/20 transition">
+                                    <div class="font-medium">Rapide</div>
+                                    <div class="text-xs text-gray-400">~85% can_dm</div>
+                                </div>
+                            </label>
+                            <label class="flex-1 cursor-pointer">
+                                <input type="radio" name="scrape_mode" value="playwright" class="hidden peer">
+                                <div class="px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-center peer-checked:border-emerald-500 peer-checked:bg-emerald-500/20 transition">
+                                    <div class="font-medium text-emerald-400">Mode Apify</div>
+                                    <div class="text-xs text-gray-400">100% can_dm</div>
+                                </div>
+                            </label>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2" id="modeDescription">Mode rapide: API v1.1, ~1000 users/min, can_dm basé sur can_media_tag (~85% fiable)</p>
+                    </div>
+
+                    <!-- Max Records -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Nombre maximum (laisser vide = tous)</label>
+                        <input type="number" id="max_records" placeholder="10000" min="1"
+                               class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 focus:border-blue-500 focus:outline-none transition">
+                    </div>
+
+                    <!-- Délais -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Délai min (s)</label>
+                            <input type="number" id="min_wait" value="10" min="1" max="60"
+                                   class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 focus:border-blue-500 focus:outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-300 mb-2">Délai max (s)</label>
+                            <input type="number" id="max_wait" value="20" min="1" max="60"
+                                   class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 focus:border-blue-500 focus:outline-none transition">
+                        </div>
+                    </div>
+
+                    <!-- Cookies -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">
+                            Tes cookies Twitter (TON compte connecté)
+                            <button type="button" onclick="showCookieHelp()" class="text-blue-400 hover:underline ml-2">Comment récupérer ?</button>
+                        </label>
+                        <div class="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-2">
+                            <p class="text-yellow-400 text-sm">
+                                <strong>Important:</strong> Ce sont les cookies de TON compte Twitter (celui avec lequel tu es connecté), PAS les cookies du compte cible!
+                            </p>
+                        </div>
+                        <textarea id="cookies" rows="6" placeholder='[{"name": "auth_token", "value": "xxx"}, {"name": "ct0", "value": "xxx"}]'
+                                  class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 focus:border-blue-500 focus:outline-none transition font-mono text-sm" required></textarea>
+                    </div>
+
+                    <!-- Proxy (optionnel) -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Proxy (optionnel)</label>
+                        <input type="text" id="proxy" placeholder="http://user:pass@proxy.com:8080"
+                               class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 focus:border-blue-500 focus:outline-none transition">
+                    </div>
+
+                    <!-- Submit -->
+                    <button type="submit" id="submitBtn"
+                            class="w-full py-4 rounded-xl twitter-blue-bg hover:bg-blue-600 font-semibold text-lg transition transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed">
+                        Lancer le Scraping
+                    </button>
+                </form>
+            </div>
+
+            <!-- Résultats -->
+            <div class="glass rounded-2xl p-6">
+                <h2 class="text-xl font-semibold mb-6 flex items-center gap-2">
+                    <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    Résultats
+                </h2>
+
+                <!-- Status initial -->
+                <div id="initialState" class="text-center py-12 text-gray-400">
+                    <svg class="w-16 h-16 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
+                    </svg>
+                    <p>Lance un scraping pour voir les résultats ici</p>
+                </div>
+
+                <!-- User Info -->
+                <div id="userInfo" class="hidden mb-6">
+                    <div class="flex items-center gap-4 p-4 bg-white/5 rounded-xl">
+                        <img id="userAvatar" src="" alt="" class="w-16 h-16 rounded-full">
+                        <div>
+                            <div class="font-semibold text-lg" id="userName"></div>
+                            <div class="text-gray-400" id="userHandle"></div>
+                            <div class="flex gap-4 mt-1 text-sm">
+                                <span><span class="font-semibold" id="userFollowers">0</span> followers</span>
+                                <span><span class="font-semibold" id="userFollowing">0</span> following</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Progress -->
+                <div id="progressSection" class="hidden mb-6">
+                    <div class="flex justify-between text-sm mb-2">
+                        <span id="progressText">Scraping en cours...</span>
+                        <span id="progressCount">0 / 0</span>
+                    </div>
+                    <div class="w-full bg-white/10 rounded-full h-3 overflow-hidden">
+                        <div id="progressBar" class="twitter-blue-bg h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="mt-2 text-sm text-gray-400">
+                        Utilisateur actuel: <span id="currentUser" class="twitter-blue">-</span>
+                    </div>
+                </div>
+
+                <!-- Users List -->
+                <div id="usersList" class="hidden">
+                    <div class="flex justify-between items-center mb-4">
+                        <span class="text-sm text-gray-400">Utilisateurs scrapés</span>
+                        <div id="downloadBtns" class="hidden flex gap-2 flex-wrap">
+                            <button onclick="previewInTab()" class="px-3 py-1 text-sm bg-emerald-600 hover:bg-emerald-700 rounded-lg transition flex items-center gap-1" title="Voir en JSON (comme Apify)">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                                Preview
+                            </button>
+                            <button onclick="addToLeads()" class="px-3 py-1 text-sm bg-green-600 hover:bg-green-700 rounded-lg transition flex items-center gap-1" title="Ajouter au leads">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
+                                + Leads
+                            </button>
+                            <button onclick="downloadResults('csv')" class="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg transition">
+                                CSV
+                            </button>
+                            <button onclick="downloadResults('json')" class="px-3 py-1 text-sm bg-purple-600 hover:bg-purple-700 rounded-lg transition">
+                                JSON
+                            </button>
+                            <button onclick="downloadCanDmOnly()" class="px-3 py-1 text-sm bg-pink-600 hover:bg-pink-700 rounded-lg transition" title="Telecharge un .txt avec uniquement les @ can_dm=true">
+                                🎯 .txt can_dm
+                            </button>
+                            <button id="autoValidateBtn" onclick="autoValidate()" class="px-3 py-1 text-sm bg-yellow-500 hover:bg-yellow-600 text-black rounded-lg transition font-bold" title="Valide chaque can_dm avec le compte clean (talia_vuj) et telecharge le .txt vraiment 100% fiable">
+                                ✅ Auto-valider 100%
+                            </button>
+                            <button onclick="addScrapedToBlacklist()" class="px-3 py-1 text-sm bg-red-600/50 hover:bg-red-600 rounded-lg transition" title="Ne plus rescraper ces utilisateurs">
+                                🚫 Blacklist
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filtres DM -->
+                    <div id="dmFilters" class="hidden mb-4 p-3 bg-white/5 rounded-xl">
+                        <div class="text-sm font-medium mb-3 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                            </svg>
+                            Filtrer par DM
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="filterUsers('all')" class="filter-btn active px-3 py-1.5 text-sm rounded-lg bg-white/10 hover:bg-white/20 transition" data-filter="all">
+                                Tous <span id="countAll" class="ml-1 opacity-60">0</span>
+                            </button>
+                            <button onclick="filterUsers('no_female')" class="filter-btn px-3 py-1.5 text-sm rounded-lg bg-green-500/20 border border-green-500/50 hover:bg-green-500/30 transition" data-filter="no_female">
+                                🎯 Cibles DM <span id="countNoFemale" class="ml-1 opacity-60">0</span>
+                            </button>
+                            <button onclick="filterUsers('female')" class="filter-btn px-3 py-1.5 text-sm rounded-lg bg-pink-500/20 border border-pink-500/50 hover:bg-pink-500/30 transition" data-filter="female">
+                                👩 Filles <span id="countFemale" class="ml-1 opacity-60">0</span>
+                            </button>
+                        </div>
+                        <div class="mt-2 text-xs text-gray-500">
+                            🎯 Cibles DM = Garçons + DM ouvert + Public
+                        </div>
+                        <div class="mt-2 flex items-center gap-2">
+                            <input type="checkbox" id="hideBlacklisted" checked onchange="displayUsers()" class="rounded">
+                            <label for="hideBlacklisted" class="text-sm text-gray-400">Masquer les déjà scrapés (<span id="blacklistedInResults">0</span>)</label>
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-white/10 space-y-2">
+                            <button onclick="addVerifiedToLeads()" id="addVerifiedBtn" class="w-full px-4 py-2 text-sm bg-green-500/20 border border-green-500/50 text-green-400 hover:bg-green-500/30 rounded-lg transition">
+                                ➕ Ajouter les DM OK aux Leads
+                            </button>
+                            <div class="text-xs text-gray-500 text-center">
+                                can_dm basé sur can_media_tag (~85% fiable)
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="usersContainer" class="space-y-2 max-h-80 overflow-y-auto pr-2"></div>
+                </div>
+
+                <!-- Complete Message -->
+                <div id="completeMessage" class="hidden text-center py-8">
+                    <div class="text-6xl mb-4">🎉</div>
+                    <h3 class="text-2xl font-bold text-green-400 mb-2">Scraping terminé!</h3>
+                    <p id="completeText" class="text-gray-400"></p>
+                </div>
+
+                <!-- Error Message -->
+                <div id="errorMessage" class="hidden p-4 bg-red-500/20 border border-red-500/50 rounded-xl">
+                    <div class="flex items-center gap-2 text-red-400">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span id="errorText"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Leads -->
+        <div id="leadsTab" class="hidden">
+            <div class="glass rounded-2xl p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold flex items-center gap-2">
+                        📋 Mes Leads (DM Vérifiés)
+                        <span class="text-sm font-normal text-gray-400">(<span id="totalLeadsCount">0</span> total)</span>
+                    </h2>
+                    <div class="flex gap-2">
+                        <button onclick="copyLeads()" class="px-3 py-2 text-sm bg-yellow-600 hover:bg-yellow-700 rounded-lg transition">
+                            📋 Copier
+                        </button>
+                        <button onclick="exportLeads('txt')" class="px-3 py-2 text-sm bg-blue-600 hover:bg-blue-700 rounded-lg transition">
+                            TXT
+                        </button>
+                        <button onclick="exportLeads('csv')" class="px-3 py-2 text-sm bg-green-600 hover:bg-green-700 rounded-lg transition">
+                            CSV
+                        </button>
+                        <button onclick="exportLeads('json')" class="px-3 py-2 text-sm bg-purple-600 hover:bg-purple-700 rounded-lg transition">
+                            JSON
+                        </button>
+                        <button onclick="clearAllLeads()" class="px-3 py-2 text-sm bg-red-600/20 border border-red-500/50 hover:bg-red-600/40 rounded-lg transition">
+                            🗑️
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Liste des leads -->
+                <div id="leadsContainer" class="space-y-2 max-h-[500px] overflow-y-auto pr-2">
+                    <div class="text-center text-gray-400 py-8">
+                        <div class="text-4xl mb-4">📭</div>
+                        <p>Aucun lead pour l'instant</p>
+                        <p class="text-sm mt-2">Vérifie des DM et clique "Ajouter les DM OK aux Leads"</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Blacklist (Déjà scrapés) -->
+        <div id="blacklistTab" class="hidden">
+            <div class="glass rounded-2xl p-6">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-xl font-semibold flex items-center gap-2">
+                        🚫 Utilisateurs déjà scrapés
+                        <span class="text-sm font-normal text-gray-400">(<span id="totalBlacklistCount">0</span> total)</span>
+                    </h2>
+                    <div class="flex gap-2">
+                        <button onclick="copyBlacklist()" class="px-3 py-2 text-sm bg-yellow-600 hover:bg-yellow-700 rounded-lg transition">
+                            📋 Copier
+                        </button>
+                        <button onclick="clearBlacklist()" class="px-3 py-2 text-sm bg-red-600/20 border border-red-500/50 hover:bg-red-600/40 rounded-lg transition">
+                            🗑️ Vider
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Zone d'ajout manuel -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-300 mb-2">Ajouter des @usernames (un par ligne)</label>
+                    <textarea id="blacklistInput" rows="4" placeholder="@username1
+@username2
+@username3"
+                        class="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 focus:border-red-500 focus:outline-none"></textarea>
+                    <button onclick="addToBlacklist()" class="mt-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg text-sm transition">
+                        ➕ Ajouter à la blacklist
+                    </button>
+                </div>
+
+                <!-- Liste -->
+                <div id="blacklistContainer" class="space-y-1 max-h-[300px] overflow-y-auto pr-2 text-sm text-gray-400">
+                    <div class="text-center py-4">Aucun utilisateur blacklisté</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cookie Help Modal -->
+        <div id="cookieModal" class="fixed inset-0 bg-black/80 hidden items-center justify-center z-50 p-4">
+            <div class="glass rounded-2xl p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-xl font-semibold">Comment ca marche ?</h3>
+                    <button onclick="closeCookieHelp()" class="text-gray-400 hover:text-white">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Explication claire -->
+                <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4 mb-6">
+                    <h4 class="font-semibold text-blue-400 mb-2">Comprendre le fonctionnement:</h4>
+                    <ul class="text-sm text-gray-300 space-y-2">
+                        <li><strong class="text-green-400">Cookies</strong> = TON compte Twitter (celui avec lequel tu es connecté)</li>
+                        <li><strong class="text-yellow-400">Compte cible</strong> = Le compte dont tu veux scraper les followers</li>
+                    </ul>
+                    <p class="text-sm text-gray-400 mt-3">
+                        C'est comme si TOI tu allais sur le profil de la cible et tu regardais sa liste de followers.
+                    </p>
+                </div>
+
+                <h4 class="font-semibold mb-3">Comment recuperer TES cookies:</h4>
+                <ol class="space-y-4 text-gray-300">
+                    <li class="flex gap-3">
+                        <span class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold">1</span>
+                        <span>Va sur <a href="https://x.com" target="_blank" class="text-blue-400 hover:underline">x.com</a> et connecte-toi avec TON compte</span>
+                    </li>
+                    <li class="flex gap-3">
+                        <span class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold">2</span>
+                        <span>Installe l'extension <a href="https://chrome.google.com/webstore/detail/editthiscookie" target="_blank" class="text-blue-400 hover:underline">EditThisCookie</a> (Chrome) ou <a href="https://addons.mozilla.org/fr/firefox/addon/cookie-editor/" target="_blank" class="text-blue-400 hover:underline">Cookie-Editor</a> (Firefox)</span>
+                    </li>
+                    <li class="flex gap-3">
+                        <span class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold">3</span>
+                        <span>Clique sur l'icone de l'extension puis "Exporter" (copie tous les cookies en JSON)</span>
+                    </li>
+                    <li class="flex gap-3">
+                        <span class="flex-shrink-0 w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-sm font-bold">4</span>
+                        <span>Colle le JSON dans le champ "Tes cookies Twitter"</span>
+                    </li>
+                </ol>
+
+                <div class="mt-4 p-3 bg-white/5 rounded-lg">
+                    <p class="text-sm text-gray-400">
+                        <strong>Alternative:</strong> Appuie sur <kbd class="px-2 py-1 bg-white/10 rounded">F12</kbd> → onglet <strong>Application</strong> → <strong>Cookies</strong> → copie <code class="px-1 bg-white/10 rounded">auth_token</code> et <code class="px-1 bg-white/10 rounded">ct0</code>
+                    </p>
+                </div>
+
+                <p class="mt-4 text-sm text-yellow-400">
+                    Utilise un compte secondaire pour eviter tout risque de ban.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .filter-btn.active { background: rgba(29, 161, 242, 0.3); border: 1px solid rgba(29, 161, 242, 0.5); }
+        .user-card.hidden-filter { display: none; }
+        .dm-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+        .dm-yes { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+        .dm-no { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+        .dm-mutual { background: rgba(59, 130, 246, 0.2); color: #3b82f6; }
+    </style>
+    <script>
+        let currentJobId = null;
+        let ws = null;
+        let allUsers = [];
+        let currentFilter = 'all';
+
+        // Form submit
+        document.getElementById('scrapeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Parse cookies
+            let cookies;
+            try {
+                cookies = JSON.parse(document.getElementById('cookies').value);
+            } catch (err) {
+                showError('Format de cookies invalide. Utilise le format JSON.');
+                return;
+            }
+
+            const scrapeMode = document.querySelector('input[name="scrape_mode"]:checked').value;
+
+            const data = {
+                target: document.getElementById('target').value,
+                list_type: document.querySelector('input[name="list_type"]:checked').value,
+                max_records: document.getElementById('max_records').value ? parseInt(document.getElementById('max_records').value) : null,
+                min_wait: parseFloat(document.getElementById('min_wait').value),
+                max_wait: parseFloat(document.getElementById('max_wait').value),
+                cookies: cookies,
+                proxy: document.getElementById('proxy').value || null,
+                mode: scrapeMode,
+            };
+
+            // Reset UI
+            resetUI();
+            document.getElementById('submitBtn').disabled = true;
+            document.getElementById('submitBtn').textContent = 'Connexion...';
+
+            try {
+                // Create job
+                const response = await fetch('/api/scrape', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+
+                const result = await response.json();
+                currentJobId = result.job_id;
+
+                // Connect WebSocket (différent endpoint selon le mode)
+                connectWebSocket(currentJobId, scrapeMode);
+
+            } catch (err) {
+                showError('Erreur de connexion au serveur');
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').textContent = 'Lancer le Scraping';
+            }
+        });
+
+        function connectWebSocket(jobId, mode = 'api') {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            // Utiliser le bon endpoint selon le mode
+            const wsEndpoint = mode === 'playwright' ? 'ws-playwright' : 'ws';
+            ws = new WebSocket(`${protocol}//${window.location.host}/${wsEndpoint}/${jobId}`);
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWSMessage(data);
+            };
+
+            ws.onclose = () => {
+                document.getElementById('submitBtn').disabled = false;
+                document.getElementById('submitBtn').textContent = 'Lancer le Scraping';
+            };
+
+            ws.onerror = () => {
+                showError('Erreur de connexion WebSocket');
+            };
+        }
+
+        function handleWSMessage(data) {
+            switch (data.type) {
+                case 'status':
+                    document.getElementById('submitBtn').textContent = data.message;
+                    break;
+
+                case 'user_info':
+                    showUserInfo(data.data);
+                    break;
+
+                case 'start':
+                    document.getElementById('initialState').classList.add('hidden');
+                    document.getElementById('progressSection').classList.remove('hidden');
+                    document.getElementById('usersList').classList.remove('hidden');
+                    document.getElementById('submitBtn').textContent = 'Scraping en cours...';
+                    break;
+
+                case 'progress':
+                    updateProgress(data.count, data.total, data.user);
+                    break;
+
+                case 'complete':
+                    showComplete(data.total_scraped, data.message);
+                    break;
+
+                case 'error':
+                    showError(data.message);
+                    break;
+
+                case 'rate_limit':
+                    // Afficher le message de rate limit
+                    document.getElementById('submitBtn').textContent = data.message;
+                    break;
+            }
+        }
+
+        // Mise à jour de la description du mode
+        document.querySelectorAll('input[name="scrape_mode"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                const mode = document.querySelector('input[name="scrape_mode"]:checked').value;
+                const desc = document.getElementById('modeDescription');
+                if (mode === 'playwright') {
+                    desc.textContent = 'Mode Apify: Playwright + GraphQL, ~50 users/scroll, VRAI can_dm 100% fiable, gère le rate limit automatiquement';
+                    desc.classList.add('text-emerald-400');
+                    desc.classList.remove('text-gray-500');
+                } else {
+                    desc.textContent = 'Mode rapide: API v1.1, ~1000 users/min, can_dm basé sur can_media_tag (~85% fiable)';
+                    desc.classList.remove('text-emerald-400');
+                    desc.classList.add('text-gray-500');
+                }
+            });
+        });
+
+        function showUserInfo(user) {
+            document.getElementById('userInfo').classList.remove('hidden');
+            document.getElementById('userAvatar').src = user.profile_image;
+            document.getElementById('userName').textContent = user.name;
+            document.getElementById('userHandle').textContent = '@' + user.username;
+            document.getElementById('userFollowers').textContent = formatNumber(user.followers_count);
+            document.getElementById('userFollowing').textContent = formatNumber(user.following_count);
+        }
+
+        function updateProgress(count, total, user) {
+            const percent = (count / total) * 100;
+            document.getElementById('progressBar').style.width = percent + '%';
+            document.getElementById('progressCount').textContent = `${formatNumber(count)} / ${formatNumber(total)}`;
+            document.getElementById('currentUser').textContent = '@' + user.username;
+
+            // Store user for filtering
+            allUsers.push(user);
+
+            // Add user card using shared function
+            const container = document.getElementById('usersContainer');
+            const card = createUserCard(user);
+            container.insertBefore(card, container.firstChild);
+
+            // Update counts
+            updateFilterCounts();
+
+            // Limit displayed cards during scraping (will rebuild on filter)
+            while (container.children.length > 200) {
+                container.removeChild(container.lastChild);
+            }
+        }
+
+        function updateFilterCounts() {
+            document.getElementById('countAll').textContent = allUsers.length;
+            // Cibles DM = garçons + can_dm (vrai) + pas privé
+            const dmOK = allUsers.filter(u => u.gender !== 'female' && u.can_dm && !u.protected);
+            document.getElementById('countNoFemale').textContent = dmOK.length;
+            document.getElementById('countFemale').textContent = allUsers.filter(u => u.gender === 'female').length;
+        }
+
+        function filterUsers(filter) {
+            currentFilter = filter;
+
+            // Update active button
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.dataset.filter === filter) btn.classList.add('active');
+            });
+
+            // Rebuild cards based on filter
+            rebuildUserCards(filter);
+        }
+
+        function rebuildUserCards(filter) {
+            const container = document.getElementById('usersContainer');
+            container.innerHTML = '';
+
+            // Check blacklist filter
+            const hideBlacklisted = document.getElementById('hideBlacklisted')?.checked ?? true;
+            const blacklist = getBlacklist();
+
+            // Count blacklisted users in results
+            const blacklistedCount = allUsers.filter(u => blacklist.includes(u.username.toLowerCase())).length;
+            const blacklistedCountEl = document.getElementById('blacklistedInResults');
+            if (blacklistedCountEl) blacklistedCountEl.textContent = blacklistedCount;
+
+            // Filter users based on current filter
+            let filteredUsers = allUsers.filter(user => {
+                // First check blacklist
+                if (hideBlacklisted && blacklist.includes(user.username.toLowerCase())) {
+                    return false;
+                }
+
+                switch(filter) {
+                    case 'all':
+                        return true;
+                    case 'no_female':
+                        // Cibles DM: Garçons + can_dm (vrai) + pas privé
+                        return user.gender !== 'female' && user.can_dm && !user.protected;
+                    case 'female':
+                        return user.gender === 'female';
+                    default:
+                        return true;
+                }
+            });
+
+            // Show max 500 cards (reversed to show newest first)
+            const displayUsers = filteredUsers.slice(-500).reverse();
+
+            displayUsers.forEach(user => {
+                const card = createUserCard(user);
+                container.appendChild(card);
+            });
+
+            // Update displayed count
+            const filterCount = document.getElementById('filterResultCount');
+            if (filterCount) {
+                filterCount.textContent = `Affichage: ${displayUsers.length} / ${filteredUsers.length}`;
+            }
+        }
+
+        function displayUsers() {
+            rebuildUserCards(currentFilter);
+        }
+
+        function createUserCard(user) {
+            // Determine DM badge
+            let dmBadge = '';
+            if (user.dm_verified) {
+                // Vérifié via friendships/show - 100% fiable
+                dmBadge = user.can_dm
+                    ? '<span class="dm-badge dm-yes">✓ DM Vérifié</span>'
+                    : '<span class="dm-badge dm-no">✗ DM Fermé</span>';
+            } else if (user.can_dm) {
+                dmBadge = '<span class="dm-badge dm-yes">DM OK</span>';
+            } else if (user.protected) {
+                dmBadge = '<span class="dm-badge dm-no">Privé</span>';
+            } else if (user.has_profile_pic && user.has_bio) {
+                dmBadge = '<span class="dm-badge dm-mutual">Qualifié</span>';
+            }
+
+            // Gender emoji
+            let genderEmoji = '';
+            if (user.gender === 'male') genderEmoji = '👨';
+            else if (user.gender === 'female') genderEmoji = '👩';
+
+            const card = document.createElement('div');
+            card.className = 'user-card flex items-center gap-3 p-3 bg-white/5 rounded-lg';
+            card.dataset.canDm = user.can_dm || false;
+            card.dataset.qualified = (user.has_profile_pic && user.has_bio && !user.protected) || false;
+            card.dataset.protected = user.protected || false;
+            card.dataset.gender = user.gender || 'unknown';
+            card.dataset.username = user.username;
+            card.dataset.userid = user.id;
+
+            card.innerHTML = `
+                <img src="${user.profile_image}" alt="" class="w-10 h-10 rounded-full" onerror="this.src='https://abs.twimg.com/sticky/default_profile_images/default_profile_400x400.png'">
+                <div class="flex-1 min-w-0">
+                    <div class="font-medium truncate flex items-center gap-2">
+                        ${genderEmoji} ${user.name}
+                        ${dmBadge}
+                    </div>
+                    <div class="text-sm text-gray-400 truncate">@${user.username}</div>
+                </div>
+                <div class="text-right text-sm">
+                    <div class="font-medium">${formatNumber(user.followers_count)}</div>
+                    <div class="text-gray-400">followers</div>
+                </div>
+            `;
+            return card;
+        }
+
+        function showComplete(total, message) {
+            document.getElementById('progressSection').classList.add('hidden');
+            document.getElementById('completeMessage').classList.remove('hidden');
+            document.getElementById('completeText').textContent = message;
+            document.getElementById('downloadBtns').classList.remove('hidden');
+            document.getElementById('downloadBtns').classList.add('flex');
+            document.getElementById('dmFilters').classList.remove('hidden');
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').textContent = 'Nouveau Scraping';
+
+            // Show DM stats
+            const canDmCount = allUsers.filter(u => u.can_dm).length;
+            const qualifiedCount = allUsers.filter(u => u.has_profile_pic && u.has_bio && !u.protected).length;
+            const maleCount = allUsers.filter(u => u.gender === 'male').length;
+            const femaleCount = allUsers.filter(u => u.gender === 'female').length;
+
+            let statsHtml = `${total} utilisateurs récupérés`;
+            statsHtml += `<br><span class="text-green-400">${canDmCount} DM possibles</span>`;
+            statsHtml += ` • <span class="text-blue-400">${qualifiedCount} qualifiés</span>`;
+            statsHtml += `<br>👨 <span class="text-cyan-400">${maleCount} hommes</span>`;
+            statsHtml += ` • 👩 <span class="text-pink-400">${femaleCount} femmes</span>`;
+            document.getElementById('completeText').innerHTML = statsHtml;
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').classList.remove('hidden');
+            document.getElementById('errorText').textContent = message;
+            document.getElementById('submitBtn').disabled = false;
+            document.getElementById('submitBtn').textContent = 'Réessayer';
+        }
+
+        function resetUI() {
+            document.getElementById('initialState').classList.remove('hidden');
+            document.getElementById('userInfo').classList.add('hidden');
+            document.getElementById('progressSection').classList.add('hidden');
+            document.getElementById('usersList').classList.add('hidden');
+            document.getElementById('completeMessage').classList.add('hidden');
+            document.getElementById('errorMessage').classList.add('hidden');
+            document.getElementById('downloadBtns').classList.add('hidden');
+            document.getElementById('dmFilters').classList.add('hidden');
+            document.getElementById('usersContainer').innerHTML = '';
+            document.getElementById('progressBar').style.width = '0%';
+            allUsers = [];
+            currentFilter = 'all';
+        }
+
+        function getFilteredUsers() {
+            const hideBlacklisted = document.getElementById('hideBlacklisted')?.checked ?? true;
+            const blacklist = getBlacklist();
+
+            let users = allUsers;
+
+            // Filter out blacklisted if checkbox is checked
+            if (hideBlacklisted) {
+                users = users.filter(u => !blacklist.includes(u.username.toLowerCase()));
+            }
+
+            switch(currentFilter) {
+                case 'no_female':
+                    // Cibles DM: Garçons + can_dm (vrai) + pas privé
+                    return users.filter(u => u.gender !== 'female' && u.can_dm && !u.protected);
+                case 'female':
+                    return users.filter(u => u.gender === 'female');
+                default:
+                    return users;
+            }
+        }
+
+        async function verifyAllCandidatesDM() {
+            // Get candidates to verify (garçons + can_media_tag + pas privé + pas encore vérifié)
+            const candidates = allUsers.filter(u =>
+                u.gender !== 'female' &&
+                u.can_media_tag &&
+                !u.protected &&
+                u.dm_verified === undefined
+            );
+
+            if (candidates.length === 0) {
+                alert('Aucun candidat à vérifier (tous déjà vérifiés ou aucun avec can_media_tag).');
+                return;
+            }
+
+            // Get cookies
+            const cookiesText = document.getElementById('cookies').value;
+            let cookies;
+            try {
+                cookies = JSON.parse(cookiesText);
+            } catch {
+                alert('Cookies invalides.');
+                return;
+            }
+
+            // UI
+            const btn = document.getElementById('verifyDMBtn');
+            const progress = document.getElementById('verifyProgress');
+            btn.disabled = true;
+            btn.textContent = '⏳ Vérification en cours...';
+            progress.classList.remove('hidden');
+
+            let verifiedCount = 0;
+            let dmOKCount = 0;
+
+            // Verify each candidate (rate limit: 15/15min, so we go slow)
+            for (let i = 0; i < candidates.length; i++) {
+                const user = candidates[i];
+
+                // Update progress
+                document.getElementById('verifyProgressText').textContent = `@${user.username}`;
+                document.getElementById('verifyProgressCount').textContent = `${i + 1}/${candidates.length}`;
+                document.getElementById('verifyProgressBar').style.width = `${((i + 1) / candidates.length) * 100}%`;
+
+                try {
+                    const response = await fetch('/api/verify-dm', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ user_id: user.id, cookies: cookies })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        user.dm_verified = true;
+                        user.can_dm = data.can_dm;
+                        if (data.can_dm) dmOKCount++;
+                    } else {
+                        user.dm_verified = true;
+                        user.can_dm = false;
+                    }
+                } catch (err) {
+                    console.error('Verify error:', err);
+                    user.dm_verified = true;
+                    user.can_dm = false;
+                }
+
+                verifiedCount++;
+
+                // Rate limit: wait between requests (15 req / 15 min = 1 req / min to be safe)
+                // But we'll go faster: 1 req / 4 sec = 15 req / min (risky but faster)
+                if (i < candidates.length - 1) {
+                    await new Promise(r => setTimeout(r, 4000));
+                }
+            }
+
+            // Done
+            btn.disabled = false;
+            btn.textContent = `✓ ${dmOKCount}/${verifiedCount} DM OK`;
+            btn.classList.remove('bg-blue-500/20', 'text-blue-400');
+            btn.classList.add('bg-green-600', 'text-white');
+            progress.classList.add('hidden');
+
+            // Update display
+            updateFilterCounts();
+            rebuildUserCards(currentFilter);
+
+            alert(`Vérification terminée!\n${dmOKCount} utilisateurs peuvent recevoir des DM sur ${verifiedCount} vérifiés.`);
+        }
+
+        function addVerifiedToLeads() {
+            // Get verified DM OK users (garçons + can_dm vérifié + pas privé)
+            const verifiedOK = allUsers.filter(u => u.gender !== 'female' && u.can_dm === true && !u.protected);
+
+            if (verifiedOK.length === 0) {
+                alert('Aucun DM vérifié OK à ajouter.');
+                return;
+            }
+
+            // Load existing leads
+            let leads = JSON.parse(localStorage.getItem('dm_leads') || '[]');
+
+            // Add new leads (avoid duplicates by username)
+            const existingUsernames = new Set(leads.map(l => l.username));
+            let added = 0;
+
+            verifiedOK.forEach(user => {
+                if (!existingUsernames.has(user.username)) {
+                    leads.push({
+                        username: user.username,
+                        name: user.name,
+                        id: user.id,
+                        followers_count: user.followers_count,
+                        profile_image: user.profile_image,
+                        added_at: new Date().toISOString()
+                    });
+                    added++;
+                }
+            });
+
+            // Save to localStorage
+            localStorage.setItem('dm_leads', JSON.stringify(leads));
+
+            // Update leads count
+            updateLeadsCount();
+
+            // Feedback
+            const btn = document.getElementById('addVerifiedBtn');
+            btn.textContent = `✓ ${added} ajoutés aux Leads`;
+            btn.classList.remove('bg-green-500/20', 'border-green-500/50', 'text-green-400');
+            btn.classList.add('bg-green-600', 'text-white');
+
+            setTimeout(() => {
+                btn.classList.add('hidden');
+                btn.textContent = '➕ Ajouter les DM OK aux Leads';
+                btn.classList.add('bg-green-500/20', 'border-green-500/50', 'text-green-400');
+                btn.classList.remove('bg-green-600', 'text-white');
+            }, 2000);
+        }
+
+        function updateLeadsCount() {
+            const leads = JSON.parse(localStorage.getItem('dm_leads') || '[]');
+            document.getElementById('leadsCount').textContent = leads.length;
+            document.getElementById('totalLeadsCount').textContent = leads.length;
+        }
+
+        function loadLeads() {
+            const leads = JSON.parse(localStorage.getItem('dm_leads') || '[]');
+            const container = document.getElementById('leadsContainer');
+
+            if (!container) return;
+
+            container.innerHTML = '';
+
+            if (leads.length === 0) {
+                container.innerHTML = '<div class="text-center text-gray-400 py-8">Aucun lead. Vérifie des DM et ajoute-les ici.</div>';
+                return;
+            }
+
+            leads.forEach(lead => {
+                const card = document.createElement('div');
+                card.className = 'flex items-center gap-3 p-3 bg-white/5 rounded-lg';
+                card.innerHTML = `
+                    <img src="${lead.profile_image}" alt="" class="w-10 h-10 rounded-full" onerror="this.src='https://abs.twimg.com/sticky/default_profile_images/default_profile_400x400.png'">
+                    <div class="flex-1 min-w-0">
+                        <div class="font-medium truncate">${lead.name}</div>
+                        <div class="text-sm text-gray-400">@${lead.username}</div>
+                    </div>
+                    <div class="text-sm text-gray-400">${formatNumber(lead.followers_count)}</div>
+                    <button onclick="removeLead('${lead.username}')" class="text-red-400 hover:text-red-300 p-1">✕</button>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function removeLead(username) {
+            let leads = JSON.parse(localStorage.getItem('dm_leads') || '[]');
+            leads = leads.filter(l => l.username !== username);
+            localStorage.setItem('dm_leads', JSON.stringify(leads));
+            updateLeadsCount();
+            loadLeads();
+        }
+
+        function clearAllLeads() {
+            if (confirm('Supprimer tous les leads ?')) {
+                localStorage.removeItem('dm_leads');
+                updateLeadsCount();
+                loadLeads();
+            }
+        }
+
+        function copyLeads() {
+            const leads = JSON.parse(localStorage.getItem('dm_leads') || '[]');
+            if (leads.length === 0) {
+                alert('Aucun lead à copier.');
+                return;
+            }
+            // Copie les @usernames, un par ligne
+            const text = leads.map(l => '@' + l.username).join('\n');
+            navigator.clipboard.writeText(text);
+            alert(`${leads.length} leads copiés !`);
+        }
+
+        // ========== BLACKLIST FUNCTIONS ==========
+        function getBlacklist() {
+            return JSON.parse(localStorage.getItem('scraper_blacklist') || '[]');
+        }
+
+        function saveBlacklist(list) {
+            localStorage.setItem('scraper_blacklist', JSON.stringify(list));
+            updateBlacklistCount();
+        }
+
+        function updateBlacklistCount() {
+            const count = getBlacklist().length;
+            document.getElementById('blacklistCount').textContent = count;
+            document.getElementById('totalBlacklistCount').textContent = count;
+        }
+
+        function addToBlacklist() {
+            const input = document.getElementById('blacklistInput').value;
+            const usernames = input.split('\n')
+                .map(u => u.trim().replace('@', '').toLowerCase())
+                .filter(u => u.length > 0);
+
+            if (usernames.length === 0) {
+                alert('Ajoute au moins un username.');
+                return;
+            }
+
+            let blacklist = getBlacklist();
+            let added = 0;
+
+            usernames.forEach(u => {
+                if (!blacklist.includes(u)) {
+                    blacklist.push(u);
+                    added++;
+                }
+            });
+
+            saveBlacklist(blacklist);
+            document.getElementById('blacklistInput').value = '';
+            loadBlacklist();
+            alert(`${added} utilisateurs ajoutés à la blacklist.`);
+        }
+
+        function addScrapedToBlacklist() {
+            // Ajoute tous les utilisateurs scrapés actuels à la blacklist
+            if (allUsers.length === 0) {
+                alert('Aucun utilisateur à ajouter.');
+                return;
+            }
+
+            let blacklist = getBlacklist();
+            let added = 0;
+
+            allUsers.forEach(u => {
+                const username = u.username.toLowerCase();
+                if (!blacklist.includes(username)) {
+                    blacklist.push(username);
+                    added++;
+                }
+            });
+
+            saveBlacklist(blacklist);
+            alert(`${added} utilisateurs ajoutés à la blacklist.`);
+        }
+
+        function loadBlacklist() {
+            const blacklist = getBlacklist();
+            const container = document.getElementById('blacklistContainer');
+
+            if (blacklist.length === 0) {
+                container.innerHTML = '<div class="text-center py-4">Aucun utilisateur blacklisté</div>';
+                return;
+            }
+
+            container.innerHTML = blacklist.map(u => `
+                <div class="flex justify-between items-center py-1 px-2 bg-white/5 rounded">
+                    <span>@${u}</span>
+                    <button onclick="removeFromBlacklist('${u}')" class="text-red-400 hover:text-red-300 text-xs">✕</button>
+                </div>
+            `).join('');
+        }
+
+        function removeFromBlacklist(username) {
+            let blacklist = getBlacklist();
+            blacklist = blacklist.filter(u => u !== username);
+            saveBlacklist(blacklist);
+            loadBlacklist();
+        }
+
+        function copyBlacklist() {
+            const blacklist = getBlacklist();
+            if (blacklist.length === 0) {
+                alert('Aucun utilisateur à copier.');
+                return;
+            }
+            const text = blacklist.map(u => '@' + u).join('\n');
+            navigator.clipboard.writeText(text);
+            alert(`${blacklist.length} utilisateurs copiés !`);
+        }
+
+        function clearBlacklist() {
+            if (confirm('Vider toute la blacklist ?')) {
+                localStorage.removeItem('scraper_blacklist');
+                updateBlacklistCount();
+                loadBlacklist();
+            }
+        }
+
+        function isBlacklisted(username) {
+            const blacklist = getBlacklist();
+            return blacklist.includes(username.toLowerCase());
+        }
+        // ========== END BLACKLIST ==========
+
+        function exportLeads(format) {
+            const leads = JSON.parse(localStorage.getItem('dm_leads') || '[]');
+            if (leads.length === 0) {
+                alert('Aucun lead à exporter.');
+                return;
+            }
+
+            let content, filename, mimeType;
+            const timestamp = new Date().toISOString().slice(0,19).replace(/[-:]/g, '');
+
+            if (format === 'json') {
+                content = JSON.stringify(leads, null, 2);
+                filename = `dm_leads_${timestamp}.json`;
+                mimeType = 'application/json';
+            } else if (format === 'txt') {
+                // Just usernames, one per line
+                content = leads.map(l => l.username).join('\n');
+                filename = `dm_leads_${timestamp}.txt`;
+                mimeType = 'text/plain';
+            } else {
+                // CSV
+                const headers = ['username', 'name', 'id', 'followers_count'];
+                const csvRows = [headers.join(',')];
+                leads.forEach(lead => {
+                    const values = headers.map(h => `"${(lead[h] || '').toString().replace(/"/g, '""')}"`);
+                    csvRows.push(values.join(','));
+                });
+                content = csvRows.join('\n');
+                filename = `dm_leads_${timestamp}.csv`;
+                mimeType = 'text/csv';
+            }
+
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Initialize counts on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            updateLeadsCount();
+            updateBlacklistCount();
+        });
+
+        async function verifyDMBatch() {
+            // Get cookies from textarea
+            const cookiesText = document.getElementById('cookies').value;
+            let cookies;
+            try {
+                cookies = JSON.parse(cookiesText);
+            } catch {
+                alert('Cookies invalides. Vérifiez le format JSON.');
+                return;
+            }
+
+            // Get promising candidates (can_dm=true, not protected, not female)
+            const candidates = allUsers.filter(u =>
+                u.can_dm &&
+                !u.protected &&
+                u.gender !== 'female' &&
+                !u.dm_verified  // Pas déjà vérifié
+            );
+
+            if (candidates.length === 0) {
+                alert('Aucun candidat prometteur à vérifier (tous déjà vérifiés ou pas de can_dm).');
+                return;
+            }
+
+            // Take max 50 candidates (avoid too long wait)
+            const usersToCheck = candidates.slice(0, 50);
+            const userIds = usersToCheck.map(u => u.id);
+
+            // Update UI
+            const btn = document.getElementById('verifyDMBtn');
+            const status = document.getElementById('verifyDMStatus');
+            btn.disabled = true;
+            btn.textContent = '⏳ Vérification en cours...';
+            status.classList.remove('hidden');
+            const estimatedTime = Math.ceil(userIds.length / 15) * 60; // ~1 min par batch de 15
+            status.innerHTML = '<span class="text-yellow-400">Vérification de ' + userIds.length + ' candidats prometteurs... (~' + Math.ceil(estimatedTime/60) + ' min)</span>';
+
+            try {
+                const response = await fetch('/api/verify-dm-batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_ids: userIds, cookies: cookies })
+                });
+
+                const result = await response.json();
+
+                if (result.results) {
+                    // Update allUsers with real can_dm status
+                    let trueCount = 0;
+                    let falseCount = 0;
+
+                    result.results.forEach(r => {
+                        const user = allUsers.find(u => u.id === r.user_id);
+                        if (user) {
+                            const wasCanDm = user.can_dm;
+                            user.can_dm = r.can_dm;
+                            user.dm_verified = true;  // Mark as verified
+
+                            if (r.can_dm) trueCount++;
+                            else falseCount++;
+                        }
+                    });
+
+                    // Rebuild cards to reflect changes
+                    rebuildUserCards(currentFilter);
+                    updateFilterCounts();
+
+                    // Show results
+                    status.innerHTML = `<span class="text-green-400">✓ ${trueCount} DM OK</span> • <span class="text-red-400">✗ ${falseCount} DM fermés</span>`;
+
+                    // Show button to add verified DMs to leads
+                    if (trueCount > 0) {
+                        document.getElementById('addVerifiedBtn').classList.remove('hidden');
+                    }
+
+                    // Visual feedback: update cards with verified badge
+                    result.results.forEach(r => {
+                        const cards = document.querySelectorAll(`[data-userid="${r.user_id}"]`);
+                        cards.forEach(card => {
+                            const badge = card.querySelector('.dm-badge');
+                            if (badge) {
+                                if (r.can_dm) {
+                                    badge.textContent = '✓ DM Vérifié';
+                                    badge.className = 'dm-badge dm-yes';
+                                } else {
+                                    badge.textContent = '✗ DM Fermé';
+                                    badge.className = 'dm-badge dm-no';
+                                }
+                            }
+                        });
+                    });
+                }
+
+            } catch (err) {
+                status.innerHTML = '<span class="text-red-400">Erreur: ' + err.message + '</span>';
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = `
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                🔍 Vérifier les candidats (50 max)
+            `;
+        }
+
+        function previewInTab() {
+            // Ouvrir les résultats JSON dans un nouvel onglet (format Apify exact)
+            let users = getFilteredUsers();
+
+            // Si on a les données brutes (Mode Apify), les utiliser directement
+            const formattedUsers = users.map(u => {
+                // Si données brutes disponibles (Mode Apify), utiliser le format complet
+                if (u.raw) {
+                    return u.raw;
+                }
+
+                // Sinon, formater comme Apify (mode API rapide)
+                return {
+                    can_dm: u.can_dm,
+                    can_media_tag: u.can_media_tag || false,
+                    created_at: u.created_at || "",
+                    default_profile: false,
+                    default_profile_image: false,
+                    description: u.bio || "",
+                    entities: {
+                        description: { urls: [] }
+                    },
+                    fast_followers_count: 0,
+                    favourites_count: 0,
+                    followers_count: u.followers_count || 0,
+                    following: false,
+                    friends_count: u.following_count || 0,
+                    has_custom_timelines: false,
+                    is_translator: false,
+                    listed_count: 0,
+                    media_count: 0,
+                    name: u.name || "",
+                    normal_followers_count: u.followers_count || 0,
+                    pinned_tweet_ids_str: [],
+                    possibly_sensitive: false,
+                    profile_image_url_https: u.profile_image || "",
+                    profile_interstitial_type: "",
+                    screen_name: u.username,
+                    statuses_count: u.tweets_count || 0,
+                    translator_type: "none",
+                    want_retweets: false,
+                    withheld_in_countries: [],
+                    __typename: "User",
+                    id: u.id,
+                    rest_id: u.id,
+                    affiliates_highlighted_label: {},
+                    has_graduated_access: true,
+                    is_blue_verified: u.verified || false,
+                    location: {
+                        location: u.location || ""
+                    },
+                    parody_commentary_fan_label: "None",
+                    profile_image_shape: "Circle",
+                    privacy: {
+                        protected: u.protected || false
+                    },
+                    tipjar_settings: {},
+                    verification: {
+                        verified: false
+                    },
+                    verified_phone_status: false
+                };
+            });
+
+            const jsonStr = JSON.stringify(formattedUsers, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            window.open(url, '_blank');
+        }
+
+        function downloadCanDmOnly() {
+            if (!currentJobId) { alert('Lance un scrape d\'abord'); return; }
+            window.open('/api/jobs/' + currentJobId + '/download-can-dm', '_blank');
+        }
+
+        function showValidateOverlay(total) {
+            let overlay = document.getElementById('validateOverlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'validateOverlay';
+                overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);z-index:9999;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;';
+
+                const card = document.createElement('div');
+                card.style.cssText = 'background:linear-gradient(135deg,#1a1f2e 0%,#0f1420 100%);border:1px solid rgba(255,255,255,0.1);border-radius:24px;padding:40px;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
+
+                const title = document.createElement('h2');
+                title.textContent = '🛡️ Validation 100% en cours';
+                title.style.cssText = 'color:#fff;font-size:22px;font-weight:700;margin:0 0 8px 0;text-align:center;';
+                card.appendChild(title);
+
+                const sub = document.createElement('p');
+                sub.id = 'validateSub';
+                sub.textContent = 'Vérification de ' + total + ' cibles avec le pool de 13 cookies';
+                sub.style.cssText = 'color:#9ca3af;font-size:14px;margin:0 0 32px 0;text-align:center;';
+                card.appendChild(sub);
+
+                const statsRow = document.createElement('div');
+                statsRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:24px;';
+                for (const [id, label, color] of [['vDone','Traités','#60a5fa'],['vOK','DM Ouverts','#34d399'],['vETA','ETA','#fbbf24']]) {
+                    const cell = document.createElement('div');
+                    cell.style.cssText = 'background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:14px;text-align:center;';
+                    const val = document.createElement('div');
+                    val.id = id; val.textContent = '0';
+                    val.style.cssText = 'font-size:22px;font-weight:700;color:' + color + ';margin-bottom:4px;';
+                    const lab = document.createElement('div');
+                    lab.textContent = label;
+                    lab.style.cssText = 'font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;';
+                    cell.appendChild(val); cell.appendChild(lab);
+                    statsRow.appendChild(cell);
+                }
+                card.appendChild(statsRow);
+
+                const barWrap = document.createElement('div');
+                barWrap.style.cssText = 'background:rgba(255,255,255,0.05);border-radius:100px;height:10px;overflow:hidden;margin-bottom:8px;';
+                const bar = document.createElement('div');
+                bar.id = 'vBar';
+                bar.style.cssText = 'height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);width:0%;transition:width 0.5s ease;border-radius:100px;';
+                barWrap.appendChild(bar);
+                card.appendChild(barWrap);
+
+                const progressText = document.createElement('div');
+                progressText.id = 'vProgress';
+                progressText.textContent = '0 / ' + total;
+                progressText.style.cssText = 'text-align:center;color:#9ca3af;font-size:13px;margin-bottom:24px;';
+                card.appendChild(progressText);
+
+                const hint = document.createElement('div');
+                hint.id = 'vHint';
+                hint.textContent = '⚡ Rotation automatique des 13 cookies en temps réel';
+                hint.style.cssText = 'text-align:center;color:#6b7280;font-size:12px;font-style:italic;';
+                card.appendChild(hint);
+
+                overlay.appendChild(card);
+                document.body.appendChild(overlay);
+            }
+        }
+
+        function updateValidateOverlay(st, startTime) {
+            const pct = st.total ? (st.done / st.total) * 100 : 0;
+            document.getElementById('vDone').textContent = st.done + '/' + st.total;
+            document.getElementById('vOK').textContent = st.validated_count;
+            const elapsed = (Date.now() - startTime) / 1000;
+            const rate = st.done / Math.max(elapsed, 1);
+            const remaining = Math.max(0, (st.total - st.done) / Math.max(rate, 0.001));
+            const mins = Math.round(remaining / 60);
+            document.getElementById('vETA').textContent = mins + ' min';
+            document.getElementById('vBar').style.width = pct + '%';
+            document.getElementById('vProgress').textContent = st.done + ' / ' + st.total + ' (' + Math.round(pct) + '%)';
+        }
+
+        function showValidateDone(validated) {
+            const card = document.querySelector('#validateOverlay > div');
+            if (!card) return;
+            while (card.firstChild) card.removeChild(card.firstChild);
+
+            const title = document.createElement('h2');
+            title.textContent = '✅ Validation terminée';
+            title.style.cssText = 'color:#34d399;font-size:24px;font-weight:700;margin:0 0 8px 0;text-align:center;';
+            card.appendChild(title);
+
+            const sub = document.createElement('p');
+            sub.textContent = validated.length + ' cibles 100% can_dm prêtes';
+            sub.style.cssText = 'color:#9ca3af;font-size:14px;margin:0 0 24px 0;text-align:center;';
+            card.appendChild(sub);
+
+            const list = document.createElement('textarea');
+            list.value = validated.join('\n');
+            list.readOnly = true;
+            list.style.cssText = 'width:100%;height:180px;background:rgba(0,0,0,0.4);color:#e7e9ea;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:12px;font-family:monospace;font-size:13px;resize:vertical;margin-bottom:16px;outline:none;';
+            card.appendChild(list);
+
+            const btnRow = document.createElement('div');
+            btnRow.style.cssText = 'display:flex;gap:10px;';
+
+            const copyBtn = document.createElement('button');
+            copyBtn.textContent = '📋 Copier les @';
+            copyBtn.style.cssText = 'flex:1;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;';
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(validated.join('\n')).then(() => {
+                    copyBtn.textContent = '✅ Copié !';
+                    setTimeout(() => { copyBtn.textContent = '📋 Copier les @'; }, 1500);
+                });
+            };
+            btnRow.appendChild(copyBtn);
+
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = 'Fermer';
+            closeBtn.style.cssText = 'background:rgba(255,255,255,0.05);color:#9ca3af;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:14px 24px;font-size:14px;cursor:pointer;';
+            closeBtn.onclick = () => document.getElementById('validateOverlay').remove();
+            btnRow.appendChild(closeBtn);
+
+            card.appendChild(btnRow);
+        }
+
+        function hideValidateOverlay(finalState, validated) {
+            const overlay = document.getElementById('validateOverlay');
+            if (!overlay) return;
+            if (finalState === 'completed') {
+                showValidateDone(validated || []);
+            } else {
+                overlay.remove();
+            }
+        }
+
+        async function autoValidate() {
+            if (!currentJobId) { alert('Lance un scrape d\'abord'); return; }
+            if (!confirm('Valider tous les can_dm avec le pool (13 cookies) ?')) return;
+
+            const launch = await fetch('/api/jobs/' + currentJobId + '/auto-validate', {method: 'POST'}).then(r => r.json());
+            if (!launch.validate_id) { alert('Erreur : ' + (launch.detail || 'inconnu')); return; }
+            const vid = launch.validate_id;
+            const total = launch.total;
+
+            showValidateOverlay(total);
+            const startTime = Date.now();
+
+            while (true) {
+                await new Promise(r => setTimeout(r, 2000));
+                const st = await fetch('/api/validate/' + vid).then(r => r.json());
+                updateValidateOverlay(st, startTime);
+                if (st.status === 'completed' || st.status === 'error') {
+                    hideValidateOverlay(st.status, st.validated);
+                    if (st.status === 'error') {
+                        alert('Erreur lors de la validation');
+                    }
+                    break;
+                }
+            }
+        }
+
+        function downloadResults(format) {
+            if (!currentJobId) return;
+
+            let filteredUsers = getFilteredUsers();
+
+            // If filtered, download client-side
+            if (currentFilter !== 'all') {
+                downloadFilteredResults(filteredUsers, format);
+            } else {
+                window.open(`/api/jobs/${currentJobId}/download?format=${format}`, '_blank');
+            }
+        }
+
+        function downloadFilteredResults(users, format) {
+            let content, filename, mimeType;
+            const timestamp = new Date().toISOString().slice(0,19).replace(/[-:]/g, '');
+
+            if (format === 'json') {
+                content = JSON.stringify(users, null, 2);
+                filename = `filtered_${currentFilter}_${timestamp}.json`;
+                mimeType = 'application/json';
+            } else {
+                // CSV
+                const headers = Object.keys(users[0] || {});
+                const csvRows = [headers.join(',')];
+                users.forEach(user => {
+                    const values = headers.map(h => {
+                        let val = user[h] || '';
+                        if (typeof val === 'string') val = val.replace(/"/g, '""');
+                        return `"${val}"`;
+                    });
+                    csvRows.push(values.join(','));
+                });
+                content = csvRows.join('\n');
+                filename = `filtered_${currentFilter}_${timestamp}.csv`;
+                mimeType = 'text/csv';
+            }
+
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function copyUsernames() {
+            // Get filtered users based on current filter
+            let users = getFilteredUsers();
+
+            // Create list of usernames (without @)
+            const usernames = users.map(u => u.username).join('\n');
+
+            // Copy to clipboard
+            navigator.clipboard.writeText(usernames).then(() => {
+                // Show success feedback
+                const btn = document.querySelector('button[onclick="copyUsernames()"]');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copié!';
+                btn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                btn.classList.add('bg-green-600');
+                setTimeout(() => {
+                    btn.innerHTML = originalText;
+                    btn.classList.remove('bg-green-600');
+                    btn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                }, 2000);
+            }).catch(err => {
+                alert('Erreur lors de la copie: ' + err);
+            });
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function showCookieHelp() {
+            document.getElementById('cookieModal').classList.remove('hidden');
+            document.getElementById('cookieModal').classList.add('flex');
+        }
+
+        function closeCookieHelp() {
+            document.getElementById('cookieModal').classList.add('hidden');
+            document.getElementById('cookieModal').classList.remove('flex');
+        }
+
+        // Close modal on outside click
+        document.getElementById('cookieModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeCookieHelp();
+        });
+
+        // ============ LEADS MANAGEMENT ============
+
+        // Load leads from localStorage
+        let savedLeads = JSON.parse(localStorage.getItem('twitterLeads') || '[]');
+        updateLeadsUI();
+
+        function showTab(tab) {
+            const tabs = ['scraper', 'leads', 'blacklist'];
+            const activeClasses = ['active', 'bg-blue-500/20', 'border', 'border-blue-500/50', 'text-blue-400'];
+            const inactiveClasses = ['bg-white/10'];
+
+            tabs.forEach(t => {
+                const tabContent = document.getElementById(t + 'Tab');
+                const tabBtn = document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1));
+
+                if (t === tab) {
+                    tabContent.classList.remove('hidden');
+                    tabBtn.classList.add(...activeClasses);
+                    tabBtn.classList.remove(...inactiveClasses);
+                } else {
+                    tabContent.classList.add('hidden');
+                    tabBtn.classList.remove(...activeClasses);
+                    tabBtn.classList.add(...inactiveClasses);
+                }
+            });
+
+            if (tab === 'leads') loadLeads();
+            if (tab === 'blacklist') loadBlacklist();
+        }
+
+        function addToLeads() {
+            const users = getFilteredUsers();
+            let addedCount = 0;
+
+            users.forEach(user => {
+                // Store only username (saves space in localStorage)
+                if (!savedLeads.includes(user.username)) {
+                    savedLeads.push(user.username);
+                    addedCount++;
+                }
+            });
+
+            // Save to localStorage
+            try {
+                localStorage.setItem('twitterLeads', JSON.stringify(savedLeads));
+            } catch (e) {
+                alert('Erreur: localStorage plein! Exporte tes leads en CSV.');
+            }
+            updateLeadsUI();
+
+            // Feedback
+            const btn = document.querySelector('button[onclick="addToLeads()"]');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> +${addedCount} ajoutés`;
+            setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+        }
+
+        function updateLeadsUI() {
+            document.getElementById('leadsCount').textContent = savedLeads.length;
+            document.getElementById('totalLeadsCount').textContent = savedLeads.length;
+        }
+
+        function renderLeads() {
+            const container = document.getElementById('leadsContainer');
+
+            if (savedLeads.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-gray-400 py-8">
+                        <div class="text-4xl mb-4">📭</div>
+                        <p>Aucun lead pour l'instant</p>
+                        <p class="text-sm mt-2">Scrape des followers et clique sur "+ Leads"</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Show max 500 leads for performance
+            const displayLeads = savedLeads.slice(0, 500);
+            container.innerHTML = displayLeads.map((username, index) => `
+                <div class="flex items-center gap-3 p-2 bg-white/5 rounded-lg">
+                    <div class="flex-1 min-w-0">
+                        <span class="text-gray-400">@</span><span class="font-medium">${username}</span>
+                    </div>
+                    <button onclick="removeLead(${index})" class="p-1 text-red-400 hover:bg-red-500/20 rounded transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+            `).join('');
+
+            if (savedLeads.length > 500) {
+                container.innerHTML += `<div class="text-center text-gray-500 text-sm py-2">... et ${savedLeads.length - 500} autres</div>`;
+            }
+        }
+
+        function removeLead(index) {
+            savedLeads.splice(index, 1);
+            localStorage.setItem('twitterLeads', JSON.stringify(savedLeads));
+            updateLeadsUI();
+            renderLeads();
+        }
+
+        function copyAllLeads() {
+            // savedLeads is now an array of usernames (strings)
+            const usernames = savedLeads.join('\n');
+            navigator.clipboard.writeText(usernames).then(() => {
+                const btn = document.querySelector('button[onclick="copyAllLeads()"]');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg> Copié!';
+                setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+            });
+        }
+
+        function clearAllLeads() {
+            if (confirm('Supprimer tous les leads ?')) {
+                savedLeads = [];
+                localStorage.setItem('twitterLeads', JSON.stringify(savedLeads));
+                updateLeadsUI();
+                renderLeads();
+            }
+        }
+    </script>
+</body>
+</html>

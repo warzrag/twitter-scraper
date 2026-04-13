@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DM Checker - Twitter/X</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .gradient-bg { background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%); }
+        .glass { background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .spinner { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .pulse { animation: pulse 2s ease-in-out infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        .glow-green { box-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
+        .glow-red { box-shadow: 0 0 20px rgba(239, 68, 68, 0.3); }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen text-white">
+    <div class="container mx-auto px-4 py-8 max-w-5xl">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <a href="/" class="flex items-center gap-2 text-gray-400 hover:text-white transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                Retour au Scraper
+            </a>
+            <div class="flex items-center gap-2 text-emerald-400">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                100% Fiable
+            </div>
+        </div>
+
+        <!-- Title -->
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-bold mb-3">
+                <span class="bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">DM Checker</span>
+            </h1>
+            <p class="text-gray-400 text-lg">Filtre les comptes avec DM ouverts via l'API GraphQL de Twitter</p>
+        </div>
+
+        <div class="grid lg:grid-cols-2 gap-8">
+            <!-- Left Column - Input -->
+            <div class="space-y-6">
+                <!-- Cookies -->
+                <div class="glass rounded-2xl p-6">
+                    <label class="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                        <svg class="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
+                        Tes Cookies Twitter
+                    </label>
+                    <textarea id="cookies" rows="3" placeholder='[{"name":"auth_token","value":"xxx"},{"name":"ct0","value":"xxx"}]'
+                        class="w-full px-4 py-3 rounded-xl bg-black/30 border border-white/10 focus:border-emerald-500/50 focus:outline-none text-sm font-mono text-gray-300 placeholder-gray-600 resize-none"></textarea>
+                    <p class="text-xs text-gray-500 mt-2">Exporte via l'extension "EditThisCookie" sur x.com</p>
+                </div>
+
+                <!-- Usernames -->
+                <div class="glass rounded-2xl p-6">
+                    <label class="flex items-center gap-2 text-sm font-semibold text-gray-300 mb-3">
+                        <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                        Liste des comptes
+                        <span id="inputCount" class="ml-auto text-xs text-gray-500">0 comptes</span>
+                    </label>
+                    <textarea id="usernames" rows="12" placeholder="Colle ici:
+- Le fichier CSV complet (copie tout)
+- Ou une liste de @usernames
+
+Exemple:
+@username1
+@username2
+@username3"
+                        class="w-full px-4 py-3 rounded-xl bg-black/30 border border-white/10 focus:border-blue-500/50 focus:outline-none text-sm text-gray-300 placeholder-gray-600 resize-none"
+                        oninput="updateInputCount()"></textarea>
+                </div>
+
+                <!-- Controls -->
+                <div class="flex gap-4">
+                    <select id="speed" class="flex-1 px-4 py-3 rounded-xl bg-black/30 border border-white/10 focus:border-white/30 focus:outline-none text-sm">
+                        <option value="150">Turbo (150ms)</option>
+                        <option value="300" selected>Rapide (300ms)</option>
+                        <option value="500">Normal (500ms)</option>
+                    </select>
+                    <button onclick="startCheck()" id="startBtn"
+                        class="flex-1 py-3 px-6 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 rounded-xl font-semibold text-lg transition flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        Lancer (1 cookie)
+                    </button>
+                </div>
+                <button onclick="startCheckPool()" id="startBtnPool"
+                    class="w-full py-3 px-6 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 rounded-xl font-semibold text-lg transition flex items-center justify-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    🛡️ Lancer avec POOL (safe, 13 cookies)
+                </button>
+            </div>
+
+            <!-- Right Column - Results -->
+            <div class="space-y-6">
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="glass rounded-2xl p-5 text-center glow-green transition-all" id="cardOK">
+                        <div id="statOK" class="text-4xl font-bold text-emerald-400 mb-1">0</div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">DM Ouverts</div>
+                    </div>
+                    <div class="glass rounded-2xl p-5 text-center glow-red transition-all" id="cardClosed">
+                        <div id="statClosed" class="text-4xl font-bold text-red-400 mb-1">0</div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">DM Fermés</div>
+                    </div>
+                    <div class="glass rounded-2xl p-5 text-center" id="cardError">
+                        <div id="statError" class="text-4xl font-bold text-gray-500 mb-1">0</div>
+                        <div class="text-xs text-gray-400 uppercase tracking-wider">Erreurs</div>
+                    </div>
+                </div>
+
+                <!-- Progress -->
+                <div id="progressSection" class="glass rounded-2xl p-5 hidden">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 flex items-center justify-center">
+                                <svg class="w-4 h-4 spinner" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                            </div>
+                            <div>
+                                <div id="currentUser" class="font-medium">En attente...</div>
+                                <div id="progressText" class="text-xs text-gray-400">0 / 0</div>
+                            </div>
+                        </div>
+                        <div id="etaText" class="text-sm text-gray-400">ETA: --</div>
+                    </div>
+                    <div class="w-full bg-black/30 rounded-full h-2 overflow-hidden">
+                        <div id="progressBar" class="h-full bg-gradient-to-r from-emerald-500 to-cyan-500 transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <!-- Results List -->
+                <div class="glass rounded-2xl p-5">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-semibold text-gray-300">Résultats en direct</h3>
+                        <div class="flex gap-2">
+                            <button onclick="copyResults('ok')" class="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 rounded-lg text-xs font-medium transition">
+                                Copier DM OK
+                            </button>
+                            <button onclick="copyResults('all')" class="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-gray-300 rounded-lg text-xs font-medium transition">
+                                Copier Tout
+                            </button>
+                        </div>
+                    </div>
+                    <div id="resultsList" class="space-y-2 max-h-[400px] overflow-y-auto pr-2">
+                        <div class="text-center text-gray-500 py-8">
+                            <svg class="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path></svg>
+                            <p>Lance une vérification pour voir les résultats</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allResults = [];
+        let isRunning = false;
+
+        function updateInputCount() {
+            const text = document.getElementById('usernames').value;
+            const lines = text.split('\n').filter(l => l.trim().length > 0);
+            const count = lines.length > 0 && lines[0].includes(',') && lines[0].includes('username') ? lines.length - 1 : lines.length;
+            document.getElementById('inputCount').textContent = `${count} comptes`;
+        }
+
+        function parseUsernames(text) {
+            const lines = text.split('\n').filter(l => l.trim().length > 0);
+            if (lines.length === 0) return [];
+
+            const firstLine = lines[0];
+            const isCSV = firstLine.includes(',') && (firstLine.toLowerCase().includes('username') || firstLine.toLowerCase().includes('id,'));
+
+            if (isCSV) {
+                const headers = firstLine.split(',').map(h => h.trim().toLowerCase());
+                const usernameIndex = headers.indexOf('username');
+                if (usernameIndex === -1) return [];
+
+                return lines.slice(1).map(line => {
+                    const cols = line.split(',');
+                    return cols[usernameIndex]?.trim().replace('@', '') || '';
+                }).filter(u => u.length > 0);
+            } else {
+                return lines.map(l => l.trim().replace('@', '').split(',')[0].split(' ')[0]).filter(u => u.length > 0);
+            }
+        }
+
+        async function startCheckPool() {
+            if (isRunning) { isRunning = false; return; }
+
+            const usernamesText = document.getElementById('usernames').value;
+            const usernames = parseUsernames(usernamesText);
+            if (usernames.length === 0) {
+                alert('Aucun username trouvé. Colle une liste ou un CSV.');
+                return;
+            }
+
+            try {
+                const st = await fetch('/api/pool/status').then(r => r.json());
+                if (!st.total || st.total === 0) {
+                    alert('Pool vide. Place cookies_pool.json dans le dossier scraper.');
+                    return;
+                }
+                if (!confirm('Pool detecte : ' + st.total + ' comptes.\n\nLancer la validation de ' + usernames.length + ' users ?')) return;
+            } catch {
+                alert('Impossible de joindre le pool.');
+                return;
+            }
+
+            isRunning = true;
+            const btn = document.getElementById('startBtnPool');
+            btn.textContent = '⏳ En cours... (clique pour arreter)';
+            btn.classList.add('opacity-60');
+
+            document.getElementById('progressSection').classList.remove('hidden');
+            document.getElementById('resultsList').textContent = '';
+            allResults = [];
+
+            const launch = await fetch('/api/pool/verify-dm', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({user_ids: usernames})
+            }).then(r => r.json());
+
+            if (!launch.job_id) {
+                alert('Erreur au lancement du pool');
+                resetPoolBtn();
+                return;
+            }
+
+            const jobId = launch.job_id;
+            const startTime = Date.now();
+
+            while (isRunning) {
+                await new Promise(r => setTimeout(r, 3000));
+                const status = await fetch('/api/pool/job/' + jobId).then(r => r.json());
+
+                const done = status.done;
+                const total = status.total;
+                const okCount = status.can_dm_count;
+                const closedCount = done - okCount;
+
+                const elapsed = (Date.now() - startTime) / 1000;
+                const rate = done / Math.max(elapsed, 1);
+                const remaining = (total - done) / Math.max(rate, 0.001);
+
+                document.getElementById('currentUser').textContent = 'Pool rotation (' + done + '/' + total + ')';
+                document.getElementById('progressText').textContent = done + ' / ' + total;
+                document.getElementById('etaText').textContent = 'ETA: ' + Math.round(remaining / 60) + ' min';
+                document.getElementById('progressBar').style.width = ((done / total) * 100) + '%';
+                document.getElementById('statOK').textContent = okCount;
+                document.getElementById('statClosed').textContent = closedCount;
+
+                if (status.status === 'completed' || status.status === 'error') {
+                    if (status.status === 'completed') {
+                        window.open('/api/pool/job/' + jobId + '/download', '_blank');
+                    } else {
+                        alert('Erreur: ' + status.error);
+                    }
+                    break;
+                }
+            }
+            resetPoolBtn();
+        }
+
+        function resetPoolBtn() {
+            isRunning = false;
+            const btn = document.getElementById('startBtnPool');
+            btn.classList.remove('opacity-60');
+            btn.textContent = '🛡️ Lancer avec POOL (safe, 13 cookies)';
+        }
+
+        async function startCheck() {
+            if (isRunning) {
+                isRunning = false;
+                return;
+            }
+
+            const cookiesText = document.getElementById('cookies').value;
+            const usernamesText = document.getElementById('usernames').value;
+            const speed = parseInt(document.getElementById('speed').value);
+
+            let cookies;
+            try {
+                cookies = JSON.parse(cookiesText);
+            } catch {
+                alert('Cookies invalides. Format JSON requis.');
+                return;
+            }
+
+            const usernames = parseUsernames(usernamesText);
+            if (usernames.length === 0) {
+                alert('Aucun username trouvé. Colle une liste ou un CSV.');
+                return;
+            }
+
+            // UI Setup
+            isRunning = true;
+            const btn = document.getElementById('startBtn');
+            btn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg> Stop';
+            btn.classList.remove('from-emerald-500', 'to-cyan-500', 'hover:from-emerald-600', 'hover:to-cyan-600');
+            btn.classList.add('from-red-500', 'to-orange-500', 'hover:from-red-600', 'hover:to-orange-600');
+
+            document.getElementById('progressSection').classList.remove('hidden');
+            document.getElementById('resultsList').innerHTML = '';
+            allResults = [];
+
+            let okCount = 0, closedCount = 0, errorCount = 0;
+            const startTime = Date.now();
+
+            for (let i = 0; i < usernames.length && isRunning; i++) {
+                const username = usernames[i];
+
+                // Update progress
+                const elapsed = (Date.now() - startTime) / 1000;
+                const rate = (i + 1) / elapsed;
+                const remaining = (usernames.length - i - 1) / rate;
+
+                document.getElementById('currentUser').textContent = `@${username}`;
+                document.getElementById('progressText').textContent = `${i + 1} / ${usernames.length}`;
+                document.getElementById('etaText').textContent = `ETA: ${Math.round(remaining)}s`;
+                document.getElementById('progressBar').style.width = `${((i + 1) / usernames.length) * 100}%`;
+
+                try {
+                    const response = await fetch('/api/user-info', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ username, cookies })
+                    });
+
+                    if (!response.ok) throw new Error('API error');
+
+                    const userInfo = await response.json();
+
+                    if (!userInfo) {
+                        errorCount++;
+                        allResults.push({ username, status: 'error' });
+                        addResultCard(username, 'error');
+                    } else {
+                        const canDM = userInfo.can_dm === true;
+                        allResults.push({ username, status: canDM ? 'ok' : 'closed', can_dm: canDM, name: userInfo.name, followers: userInfo.followers_count });
+
+                        if (canDM) {
+                            okCount++;
+                            addResultCard(username, 'ok', userInfo.name, userInfo.followers_count);
+                        } else {
+                            closedCount++;
+                            addResultCard(username, 'closed', userInfo.name, userInfo.followers_count);
+                        }
+                    }
+                } catch (err) {
+                    errorCount++;
+                    allResults.push({ username, status: 'error' });
+                    addResultCard(username, 'error');
+                }
+
+                // Update stats with animation
+                updateStat('statOK', okCount);
+                updateStat('statClosed', closedCount);
+                updateStat('statError', errorCount);
+
+                await new Promise(r => setTimeout(r, speed));
+            }
+
+            // Done
+            isRunning = false;
+            btn.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg> Lancer';
+            btn.classList.remove('from-red-500', 'to-orange-500', 'hover:from-red-600', 'hover:to-orange-600');
+            btn.classList.add('from-emerald-500', 'to-cyan-500', 'hover:from-emerald-600', 'hover:to-cyan-600');
+
+            document.getElementById('currentUser').textContent = 'Terminé !';
+            document.getElementById('etaText').textContent = `${Math.round((Date.now() - startTime) / 1000)}s`;
+        }
+
+        function updateStat(id, value) {
+            const el = document.getElementById(id);
+            if (parseInt(el.textContent) !== value) {
+                el.textContent = value;
+                el.classList.add('scale-110');
+                setTimeout(() => el.classList.remove('scale-110'), 150);
+            }
+        }
+
+        function addResultCard(username, status, name = null, followers = null) {
+            const list = document.getElementById('resultsList');
+
+            // Remove placeholder if exists
+            if (list.querySelector('.text-center')) {
+                list.innerHTML = '';
+            }
+
+            const card = document.createElement('div');
+            card.className = 'slide-in flex items-center justify-between p-3 rounded-xl ' +
+                (status === 'ok' ? 'bg-emerald-500/10 border border-emerald-500/30' :
+                 status === 'closed' ? 'bg-red-500/10 border border-red-500/30' :
+                 'bg-gray-500/10 border border-gray-500/30');
+
+            const icon = status === 'ok'
+                ? '<svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>'
+                : status === 'closed'
+                ? '<svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>'
+                : '<svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>';
+
+            card.innerHTML = `
+                <div class="flex items-center gap-3">
+                    ${icon}
+                    <div>
+                        <a href="https://x.com/${username}" target="_blank" class="font-medium hover:underline ${status === 'ok' ? 'text-emerald-300' : status === 'closed' ? 'text-red-300' : 'text-gray-400'}">@${username}</a>
+                        ${name ? `<div class="text-xs text-gray-500">${name}</div>` : ''}
+                    </div>
+                </div>
+                ${followers !== null ? `<div class="text-xs text-gray-500">${formatNumber(followers)} followers</div>` : ''}
+            `;
+
+            list.insertBefore(card, list.firstChild);
+
+            // Keep max 100 visible
+            while (list.children.length > 100) {
+                list.removeChild(list.lastChild);
+            }
+        }
+
+        function formatNumber(num) {
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+            return num.toString();
+        }
+
+        function copyResults(type) {
+            let text;
+            if (type === 'ok') {
+                text = allResults.filter(r => r.can_dm).map(r => '@' + r.username).join('\n');
+                if (!text) { alert('Aucun DM OK trouvé'); return; }
+            } else {
+                text = allResults.map(r => `@${r.username}: ${r.status === 'ok' ? 'DM OK' : r.status === 'closed' ? 'DM Fermé' : 'Erreur'}`).join('\n');
+            }
+
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target;
+                const original = btn.textContent;
+                btn.textContent = 'Copié !';
+                setTimeout(() => btn.textContent = original, 1500);
+            });
+        }
+    </script>
+</body>
+</html>

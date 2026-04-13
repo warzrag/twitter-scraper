@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Queue Multi-Cibles</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system,BlinkMacSystemFont,sans-serif; background: linear-gradient(135deg,#0a0e1a,#0f1420); color: #e7e9ea; min-height: 100vh; padding: 30px; }
+.wrap { max-width: 900px; margin: 0 auto; }
+h1 { font-size: 28px; margin-bottom: 8px; background: linear-gradient(90deg,#3b82f6,#8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.sub { color: #9ca3af; font-size: 14px; margin-bottom: 32px; }
+.card { background: linear-gradient(135deg,#1a1f2e,#0f1420); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 24px; margin-bottom: 20px; }
+.card h3 { font-size: 16px; margin-bottom: 12px; color: #fff; }
+textarea, input[type=text], input[type=number] { width: 100%; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px; color: #e7e9ea; font-size: 14px; font-family: inherit; outline: none; resize: vertical; }
+textarea:focus, input:focus { border-color: #3b82f6; }
+textarea { min-height: 120px; font-family: monospace; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.label { display:block; font-size: 12px; color: #9ca3af; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+.btn { width: 100%; background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: #fff; border: none; border-radius: 12px; padding: 16px; font-size: 16px; font-weight: 700; cursor: pointer; transition: transform 0.1s; }
+.btn:hover:not(:disabled) { transform: translateY(-1px); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.target-row { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 12px; padding: 12px; background: rgba(0,0,0,0.2); border-radius: 10px; margin-bottom: 8px; align-items: center; }
+.target-name { font-weight: 600; color: #fff; }
+.target-status { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.s-pending { color: #6b7280; }
+.s-scraping { color: #60a5fa; }
+.s-validating { color: #fbbf24; }
+.s-done { color: #34d399; }
+.s-error, .s-error_not_found { color: #f87171; }
+.stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.stat { text-align: center; background: rgba(0,0,0,0.2); border-radius: 10px; padding: 16px; }
+.stat-val { font-size: 26px; font-weight: 700; color: #60a5fa; }
+.stat-lab { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+.back { color: #9ca3af; text-decoration: none; font-size: 13px; }
+.back:hover { color: #fff; }
+@keyframes pulseGlow {
+  0% { box-shadow: 0 0 0 0 rgba(139,92,246,0.8); background: rgba(139,92,246,0.2); }
+  50% { box-shadow: 0 0 0 12px rgba(139,92,246,0); background: rgba(139,92,246,0.35); }
+  100% { box-shadow: 0 0 0 0 rgba(139,92,246,0); background: rgba(139,92,246,0.15); }
+}
+.pool-active { animation: pulseGlow 1.2s ease-out; border-color: #8b5cf6 !important; }
+.tab-btn { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #9ca3af; padding: 10px 20px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; font-family: inherit; }
+.tab-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.tab-btn.active { background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: #fff; border-color: transparent; }
+.view { display: none; }
+.view.active { display: block; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex;gap:10px;margin-bottom:20px;">
+    <a href="/" class="back" style="padding:8px 14px;border-radius:8px;">← Scraper</a>
+    <button onclick="switchTab('queue')" id="tabQueue" class="tab-btn">🚀 Queue</button>
+    <button onclick="switchTab('accounts')" id="tabAccounts" class="tab-btn">🍪 Comptes</button>
+  </div>
+
+  <div id="viewQueue">
+  <h1 style="margin-top:0">🚀 Queue Multi-Cibles</h1>
+  <p class="sub">Scrape + valide plusieurs comptes cibles en parallèle, en une seule fois.</p>
+
+  <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.2);border-radius:10px;padding:12px 16px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-size:13px;color:#9ca3af;">📚 Historique anti-doublon : <span id="historyCount" style="color:#34d399;font-weight:700;">…</span> @ déjà traités (seront ignorés)</div>
+    <button onclick="clearHistory()" style="background:transparent;border:1px solid rgba(255,255,255,0.15);color:#9ca3af;padding:6px 12px;border-radius:8px;cursor:pointer;font-size:12px;">🗑️ Reset</button>
+  </div>
+
+  <div class="card" id="setupCard">
+    <h3>Configuration</h3>
+    <label class="label">Cibles (1 @ par ligne)</label>
+    <textarea id="targets" placeholder="SharonSurX&#10;autrecompte&#10;encore_un_autre"></textarea>
+
+    <div class="row" style="margin-top:16px">
+      <div>
+        <label class="label">Max par cible</label>
+        <input type="number" id="maxPer" value="2000" min="10">
+      </div>
+      <div>
+        <label class="label">Scrapes en parallèle</label>
+        <input type="number" id="parallel" value="3" min="1" max="5">
+      </div>
+    </div>
+
+    <label class="label">Cookies pour scrape (JSON array)</label>
+    <textarea id="cookies" placeholder='[{"name":"auth_token","value":"..."},{"name":"ct0","value":"..."}]' style="min-height:80px"></textarea>
+
+    <button class="btn" id="startBtn" onclick="startQueue()" style="margin-top:16px">🚀 Lancer la queue</button>
+  </div>
+
+  <div class="card">
+    <h3>➕ Ajouter des comptes au pool</h3>
+    <p style="color:#9ca3af;font-size:13px;margin-bottom:12px">Format (1 ligne par compte) : <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;font-size:11px">user:password:email:mdp_email:ct0:auth_token:totp</code></p>
+    <textarea id="newAccounts" placeholder="user1:pass1:mail1:mdpmail1:ct0_long...:auth_token_40:totp_key&#10;user2:pass2:mail2..." style="min-height:80px"></textarea>
+    <button class="btn" onclick="addAccounts()" style="margin-top:12px;background:linear-gradient(135deg,#34d399,#10b981)">➕ Ajouter au pool</button>
+    <div id="addResult" style="margin-top:10px;font-size:13px;color:#9ca3af"></div>
+  </div>
+
+  <div class="card" id="poolCard" style="display:none">
+    <h3>🍪 Pool des 13 comptes (live)</h3>
+    <div id="poolList" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px"></div>
+  </div>
+
+  <div class="card" id="progressCard" style="display:none">
+    <h3>Progression</h3>
+    <div class="stats">
+      <div class="stat"><div class="stat-val" id="sTargets">0/0</div><div class="stat-lab">Cibles finies</div></div>
+      <div class="stat"><div class="stat-val" id="sScraped">0</div><div class="stat-lab">Total scrapés</div></div>
+      <div class="stat"><div class="stat-val" id="sValidated" style="color:#34d399">0</div><div class="stat-lab">Validés OK</div></div>
+    </div>
+    <div style="background:rgba(255,255,255,0.05);border-radius:100px;height:10px;overflow:hidden;margin-bottom:8px;">
+      <div id="globalBar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);width:0%;transition:width 0.5s ease;"></div>
+    </div>
+    <div id="globalPct" style="text-align:center;color:#9ca3af;font-size:13px;margin-bottom:16px;">Progression : 0%</div>
+    <div id="targetsList"></div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <h3>✅ Queue terminée</h3>
+    <p class="sub" id="resultSub"></p>
+    <textarea id="resultList" readonly style="min-height:200px;margin-bottom:12px"></textarea>
+    <div style="display:flex;gap:10px">
+      <button class="btn" onclick="copyResult()" style="flex:1">📋 Copier tous les @</button>
+      <button class="btn" onclick="downloadResult()" style="flex:1;background:rgba(255,255,255,0.1)">💾 Télécharger .txt</button>
+    </div>
+  </div>
+  </div><!-- /viewQueue -->
+
+  <div id="viewAccounts" style="display:none">
+    <h1 style="margin-top:0">🍪 Gestion des comptes</h1>
+    <p class="sub">Ajoute, supprime et surveille les comptes du pool de validation.</p>
+
+    <div class="stats" style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px;">
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;text-align:center;"><div id="aTotal" style="font-size:32px;font-weight:700;color:#60a5fa">0</div><div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px">Total</div></div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;text-align:center;"><div id="aActive" style="font-size:32px;font-weight:700;color:#34d399">0</div><div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px">Actifs</div></div>
+      <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;text-align:center;"><div id="aCooldown" style="font-size:32px;font-weight:700;color:#f87171">0</div><div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px">Cooldown</div></div>
+    </div>
+
+    <div class="card">
+      <h3>➕ Ajouter des comptes</h3>
+      <p style="color:#6b7280;font-size:12px;margin-bottom:8px">Format : <code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:4px;font-size:11px;color:#a78bfa">user:password:email:mdp_email:ct0:auth_token:totp</code></p>
+      <textarea id="newAccountsTab" placeholder="user1:pass1:email1:mdp1:ct0...:auth_token:totp&#10;user2:..."></textarea>
+      <button class="btn" onclick="addAccountsTab()" style="margin-top:12px;background:linear-gradient(135deg,#34d399,#10b981)">➕ Ajouter au pool</button>
+      <div id="addResultTab" style="margin-top:10px;font-size:13px;color:#9ca3af"></div>
+    </div>
+
+    <div class="card">
+      <h3>📋 Liste des comptes</h3>
+      <div id="accountsList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentQid = null;
+
+function switchTab(name) {
+  document.getElementById('viewQueue').style.display = name === 'queue' ? 'block' : 'none';
+  document.getElementById('viewAccounts').style.display = name === 'accounts' ? 'block' : 'none';
+  document.getElementById('tabQueue').classList.toggle('active', name === 'queue');
+  document.getElementById('tabAccounts').classList.toggle('active', name === 'accounts');
+  if (name === 'accounts') refreshAccounts();
+}
+
+async function refreshAccounts() {
+  const p = await fetch('/api/pool/status').then(r => r.json());
+  const accs = p.accounts || [];
+  const active = accs.filter(a => a.available).length;
+  const cd = accs.filter(a => !a.available).length;
+
+  document.getElementById('aTotal').textContent = p.total || 0;
+  document.getElementById('aActive').textContent = active;
+  document.getElementById('aCooldown').textContent = cd;
+
+  const list = document.getElementById('accountsList');
+  while (list.firstChild) list.removeChild(list.firstChild);
+
+  if (accs.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Aucun compte. Ajoute-en ci-dessus.';
+    empty.style.cssText = 'text-align:center;color:#6b7280;padding:40px;font-size:14px';
+    list.appendChild(empty);
+    return;
+  }
+
+  for (const acc of accs) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:1.5fr 0.8fr 0.9fr 0.9fr 1fr 80px;gap:10px;padding:14px 16px;background:rgba(0,0,0,0.2);border-radius:10px;margin-bottom:6px;align-items:center;font-size:13px';
+    const name = document.createElement('div'); name.textContent = '@' + acc.user; name.style.cssText = 'font-weight:700;color:#fff';
+    const status = document.createElement('div');
+    status.textContent = acc.available ? '✓ Actif' : '⏸ Cooldown';
+    status.style.color = acc.available ? '#34d399' : '#f87171';
+    const age = document.createElement('div');
+    if (acc.first_seen) {
+      const days = Math.floor((Date.now() - new Date(acc.first_seen).getTime()) / 86400000);
+      age.textContent = days === 0 ? '< 1 jour' : days + ' jour' + (days > 1 ? 's' : '');
+    } else {
+      age.textContent = '—';
+    }
+    age.style.color = '#a78bfa';
+    const reqs = document.createElement('div'); reqs.textContent = acc.requests_today + ' / jour';
+    const totalReqs = document.createElement('div');
+    totalReqs.textContent = (acc.total_requests || 0) + ' total';
+    totalReqs.style.color = '#9ca3af';
+    totalReqs.style.fontSize = '12px';
+    const del = document.createElement('button');
+    del.textContent = 'Supprimer';
+    del.style.cssText = 'background:transparent;border:1px solid rgba(248,113,113,0.3);color:#f87171;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px';
+    del.onclick = () => removeAccount(acc.user);
+    row.appendChild(name); row.appendChild(status); row.appendChild(age); row.appendChild(reqs); row.appendChild(totalReqs); row.appendChild(del);
+    list.appendChild(row);
+  }
+}
+
+async function addAccountsTab() {
+  const raw = document.getElementById('newAccountsTab').value;
+  if (!raw.trim()) { alert('Colle au moins 1 ligne'); return; }
+  const resp = await fetch('/api/pool/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({raw})
+  }).then(r => r.json());
+  const el = document.getElementById('addResultTab');
+  el.textContent = '✅ ' + resp.added + ' ajoutés • ' + resp.duplicates + ' doublons • ' + resp.invalid + ' invalides • Total : ' + resp.total;
+  el.style.color = '#34d399';
+  if (resp.added > 0) { document.getElementById('newAccountsTab').value = ''; refreshAccounts(); }
+}
+
+async function removeAccount(user) {
+  if (!confirm('Supprimer @' + user + ' du pool ?')) return;
+  await fetch('/api/pool/remove?user=' + encodeURIComponent(user), {method: 'POST'});
+  refreshAccounts();
+}
+
+switchTab('queue');
+setInterval(() => { if (document.getElementById('viewAccounts').style.display !== 'none') refreshAccounts(); }, 5000);
+
+async function loadHistory() {
+  try {
+    const s = await fetch('/api/history/stats').then(r => r.json());
+    document.getElementById('historyCount').textContent = s.total;
+  } catch {}
+}
+
+async function clearHistory() {
+  if (!confirm('Réinitialiser l\'historique ? Tous les @ déjà traités pourront revenir.')) return;
+  await fetch('/api/history/clear', {method: 'POST'});
+  loadHistory();
+}
+
+loadHistory();
+
+async function addAccounts() {
+  const raw = document.getElementById('newAccounts').value;
+  if (!raw.trim()) { alert('Colle au moins 1 ligne'); return; }
+  const resp = await fetch('/api/pool/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({raw})
+  }).then(r => r.json());
+  const msg = '✅ ' + resp.added + ' ajoutés • ' + resp.duplicates + ' doublons • ' + resp.invalid + ' invalides • Pool total : ' + resp.total;
+  document.getElementById('addResult').textContent = msg;
+  document.getElementById('addResult').style.color = '#34d399';
+  if (resp.added > 0) {
+    document.getElementById('newAccounts').value = '';
+  }
+}
+
+async function startQueue() {
+  const targets = document.getElementById('targets').value.split('\n').map(s => s.trim()).filter(s => s);
+  if (targets.length === 0) { alert('Colle au moins 1 cible'); return; }
+
+  let cookies;
+  try {
+    cookies = JSON.parse(document.getElementById('cookies').value);
+  } catch {
+    alert('Cookies invalides (JSON array requis)');
+    return;
+  }
+
+  const maxPer = parseInt(document.getElementById('maxPer').value) || null;
+  const parallel = parseInt(document.getElementById('parallel').value) || 3;
+
+  const resp = await fetch('/api/queue/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({targets, cookies, max_per_target: maxPer, parallel})
+  }).then(r => r.json());
+
+  if (!resp.queue_id) { alert('Erreur : ' + (resp.detail || '?')); return; }
+
+  currentQid = resp.queue_id;
+  document.getElementById('setupCard').style.display = 'none';
+  document.getElementById('progressCard').style.display = 'block';
+  document.getElementById('poolCard').style.display = 'block';
+
+  pollQueue();
+  pollPool();
+}
+
+async function pollPool() {
+  while (currentQid) {
+    try {
+      const p = await fetch('/api/pool/status').then(r => r.json());
+      renderPool(p);
+    } catch {}
+    await new Promise(r => setTimeout(r, 800));
+  }
+}
+
+function renderPool(p) {
+  const container = document.getElementById('poolList');
+  while (container.firstChild) container.removeChild(container.firstChild);
+  const accounts = p.accounts || [];
+  const now = Date.now();
+  accounts.sort((a, b) => (b.available - a.available) || (b.requests_today - a.requests_today));
+  for (const acc of accounts) {
+    const card = document.createElement('div');
+    const border = acc.available ? '#34d399' : '#f87171';
+    card.style.cssText = 'background:rgba(0,0,0,0.25);border:1px solid ' + border + '44;border-radius:10px;padding:10px 12px;transition:all 0.3s;';
+
+    // Si utilisé dans les 3 dernières secondes, anime
+    if (acc.last_used) {
+      const lu = new Date(acc.last_used).getTime();
+      if (now - lu < 3500) {
+        card.classList.add('pool-active');
+      }
+    }
+
+    const name = document.createElement('div');
+    name.textContent = '@' + acc.user;
+    name.style.cssText = 'font-weight:700;color:' + border + ';font-size:13px;margin-bottom:4px;';
+    card.appendChild(name);
+
+    const reqs = document.createElement('div');
+    reqs.textContent = acc.requests_today + ' req aujourd\'hui';
+    reqs.style.cssText = 'font-size:11px;color:#9ca3af;';
+    card.appendChild(reqs);
+
+    if (!acc.available) {
+      const cd = document.createElement('div');
+      cd.textContent = '⏸️ cooldown';
+      cd.style.cssText = 'font-size:10px;color:#f87171;margin-top:2px;';
+      card.appendChild(cd);
+    }
+    container.appendChild(card);
+  }
+}
+
+async function pollQueue() {
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));
+    const st = await fetch('/api/queue/' + currentQid).then(r => r.json());
+    renderProgress(st);
+    if (st.status === 'completed') {
+      renderResult(st);
+      break;
+    }
+  }
+}
+
+function renderProgress(st) {
+  const entries = Object.entries(st.targets);
+  const done = entries.filter(([_, v]) => v.status === 'done').length;
+  const totalScraped = entries.reduce((s, [_, v]) => s + v.scraped, 0);
+
+  document.getElementById('sTargets').textContent = done + '/' + entries.length;
+  document.getElementById('sScraped').textContent = totalScraped;
+  document.getElementById('sValidated').textContent = st.total_validated;
+
+  const list = document.getElementById('targetsList');
+  while (list.firstChild) list.removeChild(list.firstChild);
+
+  let totalCandidates = 0, totalChecked = 0;
+  for (const [name, data] of entries) {
+    totalCandidates += data.candidates || 0;
+    totalChecked += data.checked || 0;
+
+    const row = document.createElement('div');
+    row.className = 'target-row';
+    const n = document.createElement('div'); n.className = 'target-name'; n.textContent = '@' + name;
+    const s = document.createElement('div'); s.className = 'target-status s-' + data.status; s.textContent = data.status;
+    const sc = document.createElement('div');
+    if (data.status === 'validating' && data.candidates) {
+      sc.textContent = 'Check: ' + data.checked + '/' + data.candidates;
+    } else if (data.status === 'scraping') {
+      sc.textContent = 'Scrape: ' + data.scraped;
+    } else if (data.status === 'done') {
+      sc.textContent = '✓ ' + data.checked + '/' + data.candidates;
+    } else {
+      sc.textContent = 'Scrapés: ' + data.scraped;
+    }
+    const v = document.createElement('div'); v.textContent = '✅ ' + data.validated; v.style.color = '#34d399';
+    row.appendChild(n); row.appendChild(s); row.appendChild(sc); row.appendChild(v);
+    list.appendChild(row);
+  }
+
+  // Barre de progression globale basee sur validations verifiees
+  const pct = totalCandidates > 0 ? Math.round((totalChecked / totalCandidates) * 100) : 0;
+  document.getElementById('globalBar').style.width = pct + '%';
+  document.getElementById('globalPct').textContent = 'Progression : ' + totalChecked + ' / ' + totalCandidates + ' (' + pct + '%)';
+}
+
+function renderResult(st) {
+  document.getElementById('resultCard').style.display = 'block';
+  document.getElementById('resultSub').textContent = st.total_validated + ' cibles 100% can_dm prêtes';
+  document.getElementById('resultList').value = st.all_validated.join('\n');
+}
+
+function copyResult() {
+  const t = document.getElementById('resultList').value;
+  navigator.clipboard.writeText(t).then(() => alert('Copié !'));
+}
+
+function downloadResult() {
+  window.open('/api/queue/' + currentQid + '/download', '_blank');
+}
+</script>
+</body>
+</html>
