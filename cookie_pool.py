@@ -26,7 +26,7 @@ COOLDOWN_401 = 24 * 60 * 60   # cookie invalide / banni
 COOLDOWN_403 = 60 * 60        # action bloquee
 
 # Quota par defaut par compte (par jour)
-MAX_REQUESTS_PER_DAY = 800
+MAX_REQUESTS_PER_DAY = 10000
 
 
 class CookiePool:
