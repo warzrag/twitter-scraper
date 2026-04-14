@@ -225,7 +225,7 @@ async function refreshAccounts() {
     status.style.color = acc.available ? '#34d399' : '#f87171';
 
     // Barre de progression du quota quotidien
-    const DAILY_MAX = 10000;
+    const DAILY_MAX = 13000;
     const used = acc.requests_today || 0;
     const pct = Math.min(100, Math.round((used / DAILY_MAX) * 100));
     const progressWrap = document.createElement('div');
