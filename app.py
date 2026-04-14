@@ -411,18 +411,19 @@ async def queue_start(request: QueueStartRequest):
 
             user_id = str(info["id"])
             history = load_history()
-            candidates = []  # (user_id, username)
+            candidates = []  # (user_id, username, name)
             skipped_dup = 0
             count = 0
             try:
                 for u in scraper.scrape_list_v1(user_id, list_type="followers", max_records=request.max_per_target, check_dm=False):
                     count += 1
                     uname = (u.get("username") or "").strip()
+                    name = (u.get("name") or "").strip()
                     if u.get("can_dm") in (True, "true", "True"):
                         if uname.lower() in history:
                             skipped_dup += 1
                         else:
-                            candidates.append((str(u.get("id") or u.get("user_id") or ""), uname))
+                            candidates.append((str(u.get("id") or u.get("user_id") or ""), uname, name))
                     queue_jobs[qid]["targets"][target]["scraped"] = count
             except Exception as e:
                 print(f"[QUEUE] Scrape error {target}: {e}")
@@ -433,7 +434,7 @@ async def queue_start(request: QueueStartRequest):
             queue_jobs[qid]["targets"][target]["candidates"] = len(candidates)
             # Valide via pool
             validated_here = []
-            for uid, uname in candidates:
+            for uid, uname, name in candidates:
                 if not uid or not uname:
                     continue
                 cookie = pool.get_next()
@@ -452,6 +453,7 @@ async def queue_start(request: QueueStartRequest):
                         queue_jobs[qid]["targets"][target]["validated"] += 1
                         queue_jobs[qid]["total_validated"] += 1
                         queue_jobs[qid]["all_validated"].append(uname)
+                        queue_jobs[qid].setdefault("all_validated_with_name", []).append({"username": uname, "name": name})
                 except httpx.HTTPStatusError as he:
                     pool.report_error(cookie, he.response.status_code)
                 except Exception:
@@ -472,6 +474,22 @@ async def queue_start(request: QueueStartRequest):
         await asyncio.gather(*[run(t) for t in targets])
         queue_jobs[qid]["all_validated"] = list(dict.fromkeys(queue_jobs[qid]["all_validated"]))
         queue_jobs[qid]["total_validated"] = len(queue_jobs[qid]["all_validated"])
+        # Split par genre
+        from gender_detector import detect_gender
+        all_with_name = queue_jobs[qid].get("all_validated_with_name", [])
+        seen = set()
+        males, females = [], []
+        for item in all_with_name:
+            u = item["username"].lower()
+            if u in seen: continue
+            seen.add(u)
+            g = detect_gender(item.get("name", ""))
+            if g == "female":
+                females.append(item["username"])
+            else:
+                males.append(item["username"])
+        queue_jobs[qid]["validated_males"] = males
+        queue_jobs[qid]["validated_females"] = females
         append_history(queue_jobs[qid]["all_validated"])
         queue_jobs[qid]["status"] = "completed"
 
@@ -494,6 +512,8 @@ async def queue_status(qid: str):
         "total_validated": j["total_validated"],
         "parallel": j.get("parallel", 3),
         "all_validated": j["all_validated"] if j["status"] == "completed" else [],
+        "validated_males": j.get("validated_males", []) if j["status"] == "completed" else [],
+        "validated_females": j.get("validated_females", []) if j["status"] == "completed" else [],
     }
 
 

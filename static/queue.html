@@ -49,7 +49,6 @@ textarea { min-height: 120px; font-family: monospace; }
 <body>
 <div class="wrap">
   <div style="display:flex;gap:10px;margin-bottom:20px;">
-    <a href="/" class="back" style="padding:8px 14px;border-radius:8px;">← Scraper</a>
     <button onclick="switchTab('queue')" id="tabQueue" class="tab-btn">🚀 Queue</button>
     <button onclick="switchTab('accounts')" id="tabAccounts" class="tab-btn">🍪 Comptes</button>
   </div>
@@ -135,11 +134,28 @@ textarea { min-height: 120px; font-family: monospace; }
   <div class="card" id="resultCard" style="display:none">
     <h3>✅ Queue terminée</h3>
     <p class="sub" id="resultSub"></p>
-    <textarea id="resultList" readonly style="min-height:200px;margin-bottom:12px"></textarea>
-    <div style="display:flex;gap:10px">
-      <button class="btn" onclick="copyResult()" style="flex:1">📋 Copier tous les @</button>
-      <button class="btn" onclick="downloadResult()" style="flex:1;background:rgba(255,255,255,0.1)">💾 Télécharger .txt</button>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <div style="font-size:12px;color:#34d399;font-weight:700;margin-bottom:6px">👨 HOMMES (<span id="nbMales">0</span>)</div>
+        <textarea id="resultMales" readonly style="min-height:180px"></textarea>
+        <button class="btn" onclick="copyMales()" style="margin-top:6px;background:linear-gradient(135deg,#34d399,#10b981)">📋 Copier hommes</button>
+      </div>
+      <div>
+        <div style="font-size:12px;color:#f472b6;font-weight:700;margin-bottom:6px">👩 FEMMES (<span id="nbFemales">0</span>)</div>
+        <textarea id="resultFemales" readonly style="min-height:180px"></textarea>
+        <button class="btn" onclick="copyFemales()" style="margin-top:6px;background:linear-gradient(135deg,#f472b6,#ec4899)">📋 Copier femmes</button>
+      </div>
     </div>
+
+    <details style="margin-top:12px">
+      <summary style="cursor:pointer;color:#9ca3af;font-size:12px">Liste complète (hommes + femmes)</summary>
+      <textarea id="resultList" readonly style="min-height:150px;margin-top:8px"></textarea>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <button class="btn" onclick="copyResult()" style="flex:1">📋 Copier tout</button>
+        <button class="btn" onclick="downloadResult()" style="flex:1;background:rgba(255,255,255,0.1)">💾 Télécharger .txt</button>
+      </div>
+    </details>
   </div>
   </div><!-- /viewQueue -->
 
@@ -570,13 +586,27 @@ function renderProgress(st) {
 
 function renderResult(st) {
   document.getElementById('resultCard').style.display = 'block';
-  document.getElementById('resultSub').textContent = st.total_validated + ' cibles 100% can_dm prêtes';
-  document.getElementById('resultList').value = st.all_validated.join('\n');
+  const males = st.validated_males || [];
+  const females = st.validated_females || [];
+  document.getElementById('resultSub').textContent = st.total_validated + ' cibles 100% can_dm (' + males.length + ' hommes + ' + females.length + ' femmes)';
+  document.getElementById('nbMales').textContent = males.length;
+  document.getElementById('nbFemales').textContent = females.length;
+  document.getElementById('resultMales').value = males.join('\n');
+  document.getElementById('resultFemales').value = females.join('\n');
+  document.getElementById('resultList').value = (st.all_validated || []).join('\n');
 }
 
 function copyResult() {
   const t = document.getElementById('resultList').value;
   navigator.clipboard.writeText(t).then(() => alert('Copié !'));
+}
+function copyMales() {
+  const t = document.getElementById('resultMales').value;
+  navigator.clipboard.writeText(t).then(() => alert('👨 Hommes copiés'));
+}
+function copyFemales() {
+  const t = document.getElementById('resultFemales').value;
+  navigator.clipboard.writeText(t).then(() => alert('👩 Femmes copiées'));
 }
 
 function downloadResult() {
