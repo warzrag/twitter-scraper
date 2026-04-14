@@ -202,29 +202,39 @@ async function refreshAccounts() {
 
   for (const acc of accs) {
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:1.5fr 0.8fr 0.9fr 0.9fr 1fr 80px;gap:10px;padding:14px 16px;background:rgba(0,0,0,0.2);border-radius:10px;margin-bottom:6px;align-items:center;font-size:13px';
+    row.style.cssText = 'display:grid;grid-template-columns:1.2fr 0.8fr 2fr 0.9fr 80px;gap:10px;padding:14px 16px;background:rgba(0,0,0,0.2);border-radius:10px;margin-bottom:6px;align-items:center;font-size:13px';
     const name = document.createElement('div'); name.textContent = '@' + acc.user; name.style.cssText = 'font-weight:700;color:#fff';
     const status = document.createElement('div');
     status.textContent = acc.available ? '✓ Actif' : '⏸ Cooldown';
     status.style.color = acc.available ? '#34d399' : '#f87171';
-    const age = document.createElement('div');
-    if (acc.first_seen) {
-      const days = Math.floor((Date.now() - new Date(acc.first_seen).getTime()) / 86400000);
-      age.textContent = days === 0 ? '< 1 jour' : days + ' jour' + (days > 1 ? 's' : '');
-    } else {
-      age.textContent = '—';
-    }
-    age.style.color = '#a78bfa';
-    const reqs = document.createElement('div'); reqs.textContent = acc.requests_today + ' / jour';
+
+    // Barre de progression du quota quotidien
+    const DAILY_MAX = 10000;
+    const used = acc.requests_today || 0;
+    const pct = Math.min(100, Math.round((used / DAILY_MAX) * 100));
+    const progressWrap = document.createElement('div');
+    const barWrap = document.createElement('div');
+    barWrap.style.cssText = 'background:rgba(255,255,255,0.05);border-radius:100px;height:8px;overflow:hidden;margin-bottom:4px';
+    const bar = document.createElement('div');
+    const barColor = pct < 60 ? '#34d399' : (pct < 85 ? '#fbbf24' : '#f87171');
+    bar.style.cssText = 'height:100%;background:' + barColor + ';width:' + pct + '%;transition:width 0.4s ease';
+    barWrap.appendChild(bar);
+    const barLabel = document.createElement('div');
+    barLabel.textContent = used.toLocaleString('fr-FR') + ' / ' + DAILY_MAX.toLocaleString('fr-FR') + ' (' + pct + '%)';
+    barLabel.style.cssText = 'font-size:11px;color:#9ca3af';
+    progressWrap.appendChild(barWrap);
+    progressWrap.appendChild(barLabel);
+
     const totalReqs = document.createElement('div');
-    totalReqs.textContent = (acc.total_requests || 0) + ' total';
-    totalReqs.style.color = '#9ca3af';
-    totalReqs.style.fontSize = '12px';
+    totalReqs.textContent = (acc.total_requests || 0).toLocaleString('fr-FR') + ' total';
+    totalReqs.style.cssText = 'color:#a78bfa;font-size:12px;text-align:right';
+
     const del = document.createElement('button');
     del.textContent = 'Supprimer';
     del.style.cssText = 'background:transparent;border:1px solid rgba(248,113,113,0.3);color:#f87171;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:11px';
     del.onclick = () => removeAccount(acc.user);
-    row.appendChild(name); row.appendChild(status); row.appendChild(age); row.appendChild(reqs); row.appendChild(totalReqs); row.appendChild(del);
+
+    row.appendChild(name); row.appendChild(status); row.appendChild(progressWrap); row.appendChild(totalReqs); row.appendChild(del);
     list.appendChild(row);
   }
 }
