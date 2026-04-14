@@ -59,7 +59,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             user, _, pwd = decoded.partition(":")
         except Exception:
             return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Twitter Scraper"'})
-        if not (secrets.compare_digest(user, AUTH_USER) and secrets.compare_digest(pwd, AUTH_PASS)):
+        if not (secrets.compare_digest(user.encode("utf-8"), AUTH_USER.encode("utf-8")) and secrets.compare_digest(pwd.encode("utf-8"), AUTH_PASS.encode("utf-8"))):
             return Response(status_code=401, headers={"WWW-Authenticate": 'Basic realm="Twitter Scraper"'})
         return await call_next(request)
 
@@ -312,6 +312,31 @@ async def history_clear():
     if HISTORY_FILE.exists():
         HISTORY_FILE.unlink()
     return {"cleared": True}
+
+
+class GenderFilterRequest(BaseModel):
+    data: list  # liste d'objets {name, screen_name} ou {name, username}
+
+
+@app.post("/api/gender-filter")
+async def gender_filter(request: GenderFilterRequest):
+    """Filtre une liste par genre avec le detecteur Python."""
+    from gender_detector import detect_gender
+    males, females, unknowns = [], [], []
+    for item in request.data:
+        name = item.get("name", "") or item.get("full_name", "")
+        screen = item.get("screen_name", "") or item.get("username", "")
+        if not screen:
+            continue
+        g = detect_gender(name)
+        if g == "male":
+            males.append(screen)
+        elif g == "female":
+            females.append(screen)
+        else:
+            unknowns.append(screen)
+    return {"males": males, "females": females, "unknowns": unknowns,
+            "total": len(request.data)}
 
 
 class PreviewRequest(BaseModel):

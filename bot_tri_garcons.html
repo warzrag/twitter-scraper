@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Bot Tri Garçons</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, Arial, sans-serif; background: #0f1420; color: #e7e9ea; min-height: 100vh; padding: 24px; }
+.wrap { max-width: 900px; margin: 0 auto; }
+h1 { font-size: 26px; margin-bottom: 8px; color: #60a5fa; }
+.sub { color: #9ca3af; font-size: 14px; margin-bottom: 24px; }
+.card { background: #1a1f2e; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+.card h3 { font-size: 15px; margin-bottom: 10px; }
+textarea { width: 100%; background: #000; color: #e7e9ea; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; padding: 12px; font-family: monospace; font-size: 13px; outline: none; resize: vertical; min-height: 180px; }
+textarea:focus { border-color: #3b82f6; }
+.btn { background: linear-gradient(135deg, #3b82f6, #8b5cf6); color: #fff; border: none; border-radius: 10px; padding: 14px; font-weight: 700; cursor: pointer; width: 100%; font-size: 15px; }
+.btn.copy { background: linear-gradient(135deg, #10b981, #059669); margin-top: 10px; }
+.stats { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 14px; }
+.stat { background: #0a0e1a; padding: 14px; border-radius: 10px; text-align: center; border: 1px solid rgba(255,255,255,0.08); }
+.stat-v { font-size: 24px; font-weight: 700; }
+.stat-l { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+.hint { color: #6b7280; font-size: 11px; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>👨 Bot Tri Garçons</h1>
+<p class="sub">Colle ton JSON (username + name), sors la liste des garçons uniquement.</p>
+
+<div class="card">
+<h3>📥 Données (JSON)</h3>
+<p class="hint">Format : tableau d'objets avec username (ou screen_name) et name</p>
+<textarea id="input" placeholder='[{"username":"BudKay22","name":"BudKay"}]'></textarea>
+<button class="btn" onclick="run()" style="margin-top:10px">🔍 Trier</button>
+</div>
+
+<div id="results" style="display:none">
+<div class="stats">
+<div class="stat"><div class="stat-v" style="color:#60a5fa" id="t">0</div><div class="stat-l">Total</div></div>
+<div class="stat"><div class="stat-v" style="color:#34d399" id="b">0</div><div class="stat-l">👨 Garçons</div></div>
+<div class="stat"><div class="stat-v" style="color:#f472b6" id="g">0</div><div class="stat-l">👩 Filles</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+<div class="card">
+<h3>✅ Usernames garçons</h3>
+<textarea id="output" readonly></textarea>
+<button class="btn copy" onclick="copie()">📋 Copier garçons</button>
+</div>
+<div class="card">
+<h3>👩 Names des filles</h3>
+<textarea id="outputGirls" readonly></textarea>
+<button class="btn copy" onclick="copieGirls()" style="background:linear-gradient(135deg,#ec4899,#be185d)">📋 Copier filles</button>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+const MALE = new Set(["aaron","abdul","adam","adrien","ahmed","akira","alberto","alejandro","alessandro","alexandre","alexis","alfonso","ali","amir","andres","andrew","angel","angelo","anthony","antoine","antonio","arthur","austin","baptiste","ben","benjamin","bill","billy","bob","boris","brad","brandon","brian","bruce","bruno","bryan","carl","carlos","cesar","chad","charles","charlie","chris","christian","christophe","christopher","claudio","clement","colin","connor","damien","dan","daniel","daniele","danny","david","davide","denis","derek","diego","dimitri","dmitri","donald","doug","douglas","drew","dylan","edouard","eduardo","edward","eli","elijah","emanuele","emmanuel","enrique","eric","erik","ernesto","ethan","etienne","evan","fabien","fabio","farid","federico","felix","fernando","filippo","florian","francesco","francisco","francois","frank","fred","frederic","gabriel","gary","george","gerardo","giacomo","giorgio","giovanni","giuseppe","gonzalo","greg","gregory","guillaume","guillermo","gustavo","hans","harry","hassan","hector","henry","hiroshi","hugo","hussein","ian","ibrahim","ignacio","ivan","jack","jacob","jacques","jake","james","jan","jason","javier","jean","jeff","jeffrey","jeremy","jerome","jesse","jesus","jim","jimmy","joe","joel","john","johnny","jonathan","jordan","jorge","jose","joseph","josh","joshua","juan","julien","julio","justin","karim","karl","keith","ken","kenji","kenneth","kevin","khalid","klaus","kyle","larry","lars","laurent","leo","liam","logan","louis","luca","lucas","luigi","luis","luke","magnus","mahmoud","manuel","marc","marco","marcos","mario","mark","martin","mason","massimo","mathieu","matt","matteo","matthew","mauro","max","maxime","michael","michel","michele","miguel","mike","mohamed","mohammad","mohammed","muhammad","mustafa","nathan","nicholas","nick","nicola","nicolas","noah","oliver","olivier","omar","oscar","owen","pablo","paolo","patrick","paul","pavel","pedro","peter","philip","philippe","pierre","pietro","quentin","rafael","raphael","rashid","raul","ray","remi","ricardo","riccardo","richard","rick","rob","robert","roberto","rodrigo","roger","romain","ron","ronald","ross","russell","ryan","salvador","salvatore","sam","samir","samuel","santiago","scott","sean","sebastien","sergio","seth","shane","shawn","simon","simone","spencer","stefano","stephane","steve","steven","sven","sylvain","tariq","ted","terry","theo","thomas","tim","timothy","todd","tom","tommy","tony","travis","trevor","troy","tyler","valentin","victor","vincent","walter","wayne","william","willie","xavier","yann","yannick","youssef","yusuf","yves","zach","zachary"]);
+const FEMALE = new Set(["abigail","adriana","aisha","akiko","alejandra","alessandra","alessia","alexandra","alice","alicia","allison","amanda","amber","amelie","amina","amy","ana","anastasia","angela","angelica","ann","anna","anne","antonella","arianna","ashley","audrey","aurelie","barbara","beatrice","beatriz","betty","beverly","bianca","brenda","brigitte","brittany","brooke","camila","camille","carla","carlotta","carmen","carol","carolina","caroline","carolyn","catalina","catherine","cecile","cecilia","charlotte","cheryl","chiara","chloe","christina","christine","cindy","claire","claudia","clementine","cristina","crystal","cynthia","dana","daniela","danielle","deborah","debra","delphine","denise","diana","diane","donna","dorothy","elena","eleonora","elisa","elise","elizabeth","ellen","emilie","emily","emma","erica","erin","estelle","eva","evelyn","faith","fatima","federica","florence","frances","francesca","francoise","gabriela","gabrielle","giada","giorgia","giovanna","giulia","grace","guadalupe","hailey","hana","hannah","heather","helen","helene","holly","ilaria","ines","ingrid","irene","isabel","isabelle","jacqueline","jane","janet","janice","jeanne","jennifer","jessica","joan","joanne","joyce","judith","judy","julia","julie","juliette","karen","katarina","katherine","kathleen","kathryn","kathy","katie","kayla","keiko","kelly","khadija","kimberly","kristen","kristin","laetitia","laura","lauren","laurence","layla","lea","leila","linda","lisa","lori","louise","lourdes","lucia","lucie","madeleine","madison","manon","margaret","margarita","margot","maria","mariam","mariana","marie","marilyn","marine","marta","martha","martina","mary","maryam","mathilde","megan","melanie","melissa","mercedes","michelle","mildred","monica","nadia","nancy","natalia","natalie","natasha","nathalie","nicole","nina","noor","nour","olga","olivia","pamela","paola","patricia","paula","pauline","phyllis","pilar","priya","rachel","rebecca","rita","roberta","robin","rosa","rose","ruth","sakura","salma","samantha","sandra","sara","sarah","serena","sharon","shirley","silvia","simona","sofia","sophia","sophie","stefania","stephanie","susan","sylvie","tammy","tatiana","teresa","tiffany","tina","tracy","valentina","valentine","valeria","valerie","vanessa","veronica","veronique","victoria","viola","virginia","virginie","wendy","xiao","ximena","yasmin","yasmina","yoko","zahra","zara","zoe"]);
+const FKW = ['queen','girl','princess','babe','baby','bella','goddess','diva','lady','miss','mrs','mama','mom','mother','wife','girlfriend','sis','sister','kitty','bunny','honey','sweetie','cutie','hottie','femme','fille','jolie','belle','madame','mademoiselle'];
+const MKW = ['king','boy','guy','mr','sir','lord','prince','duke','daddy','father','papa','bro','brother','husband','dude','chief','alpha','hombre','senor','homme','monsieur','mec'];
+
+function norm(s){if(!s)return '';return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');}
+
+function gender(name){
+  if(!name)return 'u';
+  const n=norm(name);
+  for(const k of FKW)if(n.includes(k))return 'f';
+  for(const k of MKW)if(n.includes(k))return 'm';
+  const first=(n.split(/\s+/)[0]||'').replace(/[^a-z]/g,'');
+  if(!first)return 'u';
+  if(MALE.has(first))return 'm';
+  if(FEMALE.has(first))return 'f';
+  if(first.endsWith('a')&&first.length>2)return 'f';
+  if(first.endsWith('o')&&first.length>2)return 'm';
+  return 'u';
+}
+
+function parseData(raw){
+  try{const d=JSON.parse(raw);if(Array.isArray(d))return d;}catch(e){}
+  try{const d=JSON.parse(raw.replace(/,(\s*[\]\}])/g,'$1'));if(Array.isArray(d))return d;}catch(e){}
+  return [];
+}
+
+function run(){
+  const raw=document.getElementById('input').value.trim();
+  if(!raw){alert('Colle du JSON');return;}
+  const data=parseData(raw);
+  if(data.length===0){alert('JSON invalide');return;}
+  const boys=[];const girlNames=[];
+  for(const it of data){
+    const name=it.name||it.full_name||'';
+    const u=it.username||it.screen_name||'';
+    if(!u)continue;
+    const g=gender(name);
+    if(g==='f')girlNames.push(name || u);
+    else boys.push(u);
+  }
+  document.getElementById('results').style.display='block';
+  document.getElementById('t').textContent=data.length;
+  document.getElementById('b').textContent=boys.length;
+  document.getElementById('g').textContent=girlNames.length;
+  document.getElementById('output').value=boys.join('\n');
+  document.getElementById('outputGirls').value=girlNames.join('\n');
+}
+
+function copie(){
+  const t=document.getElementById('output').value;
+  navigator.clipboard.writeText(t).then(()=>alert('✅ garçons copiés'));
+}
+function copieGirls(){
+  const t=document.getElementById('outputGirls').value;
+  navigator.clipboard.writeText(t).then(()=>alert('✅ filles copiées'));
+}
+</script>
+</body>
+</html>
