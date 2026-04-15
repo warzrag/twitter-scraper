@@ -132,7 +132,10 @@ textarea { min-height: 120px; font-family: monospace; }
   </div>
 
   <div class="card" id="resultCard" style="display:none">
-    <h3>✅ Queue terminée</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h3 style="margin:0">✅ Queue terminée</h3>
+      <button onclick="refilterGroq()" id="refilterBtn" style="background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;border:none;padding:8px 16px;border-radius:10px;font-weight:700;cursor:pointer;font-size:13px">⚡ Re-filtrer avec Groq (95% précis)</button>
+    </div>
     <p class="sub" id="resultSub"></p>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
@@ -595,6 +598,89 @@ function renderResult(st) {
   document.getElementById('resultMales').value = males.join('\n');
   document.getElementById('resultFemales').value = females.join('\n');
   document.getElementById('resultList').value = (st.all_validated || []).join('\n');
+}
+
+function getGroqKeysQ() {
+  const s = localStorage.getItem('groq_keys');
+  return s ? JSON.parse(s) : [];
+}
+function askGroqKeysQ() {
+  const input = prompt('Colle tes clés Groq (séparées par virgules) :');
+  if (!input) return false;
+  const keys = input.split(',').map(k => k.trim()).filter(k => k.startsWith('gsk_'));
+  if (keys.length === 0) { alert('Aucune clé valide'); return false; }
+  localStorage.setItem('groq_keys', JSON.stringify(keys));
+  alert('✅ ' + keys.length + ' clés sauvegardées');
+  return true;
+}
+let groqQIdx = 0;
+function nextGroqKeyQ() {
+  const keys = getGroqKeysQ();
+  if (!keys.length) return null;
+  const k = keys[groqQIdx]; groqQIdx = (groqQIdx + 1) % keys.length;
+  return k;
+}
+
+async function refilterGroq() {
+  if (!currentQid) { alert('Pas de queue'); return; }
+  if (getGroqKeysQ().length === 0) {
+    if (!askGroqKeysQ()) return;
+  }
+
+  const st = await fetch('/api/queue/' + currentQid).then(r => r.json());
+  const data = st.all_with_name || [];
+  if (data.length === 0) { alert('Pas de données à re-filtrer'); return; }
+
+  const btn = document.getElementById('refilterBtn');
+  btn.disabled = true;
+  const originalText = btn.textContent;
+
+  const BATCH = 80;
+  const males = [];
+  const females = [];
+
+  try {
+    for (let i = 0; i < data.length; i += BATCH) {
+      const batch = data.slice(i, i + BATCH);
+      const items = batch.map((it, idx) => ({idx, name: it.name || '', screen: it.username || ''})).filter(x => x.screen);
+      const prompt = 'Determine le genre pour chaque. Strict: male/female/unknown. JSON: {"r":[{"i":0,"g":"male"}]}. Entrees:\n' + JSON.stringify(items);
+      const key = nextGroqKeyQ();
+      if (!key) break;
+
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key},
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{role: 'user', content: prompt}],
+          response_format: {type: 'json_object'},
+          temperature: 0
+        })
+      }).then(r => r.json()).catch(() => null);
+
+      if (!resp || resp.error) continue;
+      let parsed;
+      try { parsed = JSON.parse(resp.choices[0].message.content); } catch { continue; }
+
+      for (const r of (parsed.r || [])) {
+        const item = items.find(x => x.idx === r.i);
+        if (!item) continue;
+        if ((r.g || '').toLowerCase() === 'female') females.push(item.screen);
+        else males.push(item.screen);
+      }
+
+      btn.textContent = '⚡ ' + Math.min(i + BATCH, data.length) + ' / ' + data.length;
+    }
+
+    document.getElementById('nbMales').textContent = males.length;
+    document.getElementById('nbFemales').textContent = females.length;
+    document.getElementById('resultMales').value = males.join('\n');
+    document.getElementById('resultFemales').value = females.join('\n');
+    document.getElementById('resultSub').textContent = 'Re-filtré Groq : ' + males.length + ' hommes + ' + females.length + ' femmes';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 function copyResult() {

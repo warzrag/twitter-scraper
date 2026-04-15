@@ -529,6 +529,7 @@ async def queue_status(qid: str):
         "all_validated": j["all_validated"],
         "validated_males": males,
         "validated_females": females,
+        "all_with_name": j.get("all_validated_with_name", []),
     }
 
 
