@@ -238,7 +238,7 @@ async def auto_validate(job_id: str):
 
     async def worker():
         try:
-            GLOBAL_DELAY = 0.5  # 13 cookies LRU * 0.5s = ~6.5s par cookie (safe)
+            GLOBAL_DELAY = 0.4  # 13 cookies LRU * 0.4s = ~5.2s par cookie (optimise)
             for uid, uname in pairs:
                 cookie = pool.get_next()
                 if not cookie:
@@ -506,14 +506,29 @@ async def queue_status(qid: str):
     j = queue_jobs.get(qid)
     if not j:
         raise HTTPException(status_code=404)
+    # Calcule les males/femmes en live (pour voir pendant la queue)
+    males = j.get("validated_males")
+    females = j.get("validated_females")
+    if males is None or females is None:
+        from gender_detector import detect_gender
+        males, females = [], []
+        seen = set()
+        for item in j.get("all_validated_with_name", []):
+            u = item["username"].lower()
+            if u in seen: continue
+            seen.add(u)
+            if detect_gender(item.get("name", "")) == "female":
+                females.append(item["username"])
+            else:
+                males.append(item["username"])
     return {
         "status": j["status"],
         "targets": j["targets"],
         "total_validated": j["total_validated"],
         "parallel": j.get("parallel", 3),
-        "all_validated": j["all_validated"] if j["status"] == "completed" else [],
-        "validated_males": j.get("validated_males", []) if j["status"] == "completed" else [],
-        "validated_females": j.get("validated_females", []) if j["status"] == "completed" else [],
+        "all_validated": j["all_validated"],
+        "validated_males": males,
+        "validated_females": females,
     }
 
 

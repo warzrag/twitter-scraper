@@ -535,10 +535,11 @@ async function pollQueue() {
     await new Promise(r => setTimeout(r, 2000));
     const st = await fetch('/api/queue/' + currentQid).then(r => r.json());
     renderProgress(st);
-    if (st.status === 'completed') {
+    // Affiche les resultats en live aussi (pas que a la fin)
+    if ((st.validated_males && st.validated_males.length) || (st.validated_females && st.validated_females.length)) {
       renderResult(st);
-      break;
     }
+    if (st.status === 'completed') break;
   }
 }
 

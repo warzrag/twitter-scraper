@@ -32,7 +32,8 @@ textarea:focus { border-color: #3b82f6; }
 <h3>1. JSON du scrape</h3>
 <p class="hint" style="margin-bottom:8px">Format attendu : tableau d'objets avec <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;color:#a78bfa">name</code> et <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;color:#a78bfa">screen_name</code> (ou <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;color:#a78bfa">username</code>)</p>
 <textarea id="jsonInput" placeholder='[{"screen_name":"BudKay22","name":"BudKay"},{"screen_name":"AndreV","name":"Andre"}]'></textarea>
-<button class="btn" onclick="filtrer()">🔍 Filtrer les hommes</button>
+<button class="btn" onclick="filtrer()">🔍 Filtrer local (dictionnaire)</button>
+<button class="btn" onclick="filtrerGroq()" style="margin-top:8px;background:linear-gradient(135deg,#f97316,#ea580c)">⚡ Filtrer avec Groq (IA, ~95% précis)</button>
 </div>
 
 <div id="results" style="display:none">
@@ -125,6 +126,101 @@ function filtrer() {
   document.getElementById('sMen').textContent = men.length;
   document.getElementById('sOther').textContent = women;
   document.getElementById('output').value = men.join('\n');
+}
+
+function getGroqKeys() {
+  const stored = localStorage.getItem('groq_keys');
+  if (stored) return JSON.parse(stored);
+  return [];
+}
+let groqIdx = 0;
+function nextGroqKey() {
+  const keys = getGroqKeys();
+  if (keys.length === 0) return null;
+  const k = keys[groqIdx];
+  groqIdx = (groqIdx + 1) % keys.length;
+  return k;
+}
+function askGroqKeys() {
+  const input = prompt('Colle tes clés Groq (séparées par des virgules) :');
+  if (!input) return false;
+  const keys = input.split(',').map(k => k.trim()).filter(k => k.startsWith('gsk_'));
+  if (keys.length === 0) { alert('Aucune clé valide'); return false; }
+  localStorage.setItem('groq_keys', JSON.stringify(keys));
+  alert('✅ ' + keys.length + ' clés sauvegardées dans ce navigateur');
+  return true;
+}
+
+async function filtrerGroq() {
+  const raw = document.getElementById('jsonInput').value.trim();
+  if (!raw) { alert('Colle du JSON'); return; }
+  const data = parseRobust(raw);
+  if (!data || data.length === 0) { alert('Aucune donnee'); return; }
+
+  if (getGroqKeys().length === 0) {
+    if (!askGroqKeys()) return;
+  }
+
+  const btn = document.getElementById('btnGroq') || event.target;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+
+  const BATCH = 80;
+  const men = [];
+  let femaleCount = 0;
+
+  try {
+    for (let i = 0; i < data.length; i += BATCH) {
+      const batch = data.slice(i, i + BATCH);
+      const items = batch.map((it, idx) => ({
+        idx,
+        name: it.name || it.full_name || '',
+        screen: it.screen_name || it.username || ''
+      })).filter(x => x.screen);
+
+      const prompt = 'Analyse chaque entree et determine le genre. Tu dois etre tres strict : male si tu reconnais un prenom masculin (meme avec des chiffres apres), female si tu reconnais un prenom feminin. Unknown sinon. Reponds UNIQUEMENT en JSON : {"r":[{"i":0,"g":"male"}]} (g peut etre male/female/unknown). Entrees :\n' + JSON.stringify(items);
+
+      const key = nextGroqKey();
+      if (!key) { alert('Aucune clé Groq'); break; }
+      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key},
+        body: JSON.stringify({
+          model: 'llama-3.3-70b-versatile',
+          messages: [{role: 'user', content: prompt}],
+          response_format: {type: 'json_object'},
+          temperature: 0
+        })
+      }).then(r => r.json()).catch(e => ({error: e.message}));
+
+      if (resp.error) { console.error('Groq error:', resp.error); continue; }
+
+      let parsed;
+      try { parsed = JSON.parse(resp.choices[0].message.content); }
+      catch(e) { console.error('Parse error:', e); continue; }
+
+      for (const r of (parsed.r || parsed.results || [])) {
+        const item = items.find(x => x.idx === r.i || x.idx === r.idx);
+        if (!item) continue;
+        const g = (r.g || r.gender || 'unknown').toLowerCase();
+        if (g === 'female') femaleCount++;
+        else men.push(item.screen); // male + unknown
+      }
+
+      btn.textContent = '⚡ ' + Math.min(i + BATCH, data.length) + ' / ' + data.length;
+    }
+
+    document.getElementById('results').style.display = 'block';
+    document.getElementById('sTotal').textContent = data.length;
+    document.getElementById('sMen').textContent = men.length;
+    document.getElementById('sOther').textContent = femaleCount;
+    document.getElementById('output').value = men.join('\n');
+  } catch (e) {
+    alert('Erreur : ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
 }
 
 async function filtrerServer() {
