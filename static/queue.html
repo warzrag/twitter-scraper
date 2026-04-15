@@ -636,40 +636,45 @@ async function refilterGroq() {
   const originalText = btn.textContent;
 
   const BATCH = 80;
+  const PARALLEL = 3;
   const males = [];
   const females = [];
+  let done = 0;
+
+  async function processBatch(batchData) {
+    const items = batchData.map((it, idx) => ({idx, name: it.name || '', screen: it.username || ''})).filter(x => x.screen);
+    const prompt = 'Determine le genre pour chaque. Strict: male/female/unknown. JSON: {"r":[{"i":0,"g":"male"}]}. Entrees:\n' + JSON.stringify(items);
+    const key = nextGroqKeyQ();
+    if (!key) return;
+    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key},
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{role: 'user', content: prompt}],
+        response_format: {type: 'json_object'},
+        temperature: 0
+      })
+    }).then(r => r.json()).catch(() => null);
+    if (!resp || resp.error) { done += batchData.length; return; }
+    let parsed;
+    try { parsed = JSON.parse(resp.choices[0].message.content); } catch { done += batchData.length; return; }
+    for (const r of (parsed.r || [])) {
+      const item = items.find(x => x.idx === r.i);
+      if (!item) continue;
+      if ((r.g || '').toLowerCase() === 'female') females.push(item.screen);
+      else males.push(item.screen);
+    }
+    done += batchData.length;
+    btn.textContent = '⚡ ' + done + ' / ' + data.length;
+  }
 
   try {
-    for (let i = 0; i < data.length; i += BATCH) {
-      const batch = data.slice(i, i + BATCH);
-      const items = batch.map((it, idx) => ({idx, name: it.name || '', screen: it.username || ''})).filter(x => x.screen);
-      const prompt = 'Determine le genre pour chaque. Strict: male/female/unknown. JSON: {"r":[{"i":0,"g":"male"}]}. Entrees:\n' + JSON.stringify(items);
-      const key = nextGroqKeyQ();
-      if (!key) break;
-
-      const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key},
-        body: JSON.stringify({
-          model: 'llama-3.3-70b-versatile',
-          messages: [{role: 'user', content: prompt}],
-          response_format: {type: 'json_object'},
-          temperature: 0
-        })
-      }).then(r => r.json()).catch(() => null);
-
-      if (!resp || resp.error) continue;
-      let parsed;
-      try { parsed = JSON.parse(resp.choices[0].message.content); } catch { continue; }
-
-      for (const r of (parsed.r || [])) {
-        const item = items.find(x => x.idx === r.i);
-        if (!item) continue;
-        if ((r.g || '').toLowerCase() === 'female') females.push(item.screen);
-        else males.push(item.screen);
-      }
-
-      btn.textContent = '⚡ ' + Math.min(i + BATCH, data.length) + ' / ' + data.length;
+    const batches = [];
+    for (let i = 0; i < data.length; i += BATCH) batches.push(data.slice(i, i + BATCH));
+    // Traite par chunks de PARALLEL batches en parallele
+    for (let i = 0; i < batches.length; i += PARALLEL) {
+      await Promise.all(batches.slice(i, i + PARALLEL).map(processBatch));
     }
 
     document.getElementById('nbMales').textContent = males.length;
