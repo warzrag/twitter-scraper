@@ -677,11 +677,14 @@ async function refilterGroq() {
       await Promise.all(batches.slice(i, i + PARALLEL).map(processBatch));
     }
 
+    const oldMales = parseInt(document.getElementById('nbMales').textContent) || 0;
+    const oldFemales = parseInt(document.getElementById('nbFemales').textContent) || 0;
     document.getElementById('nbMales').textContent = males.length;
     document.getElementById('nbFemales').textContent = females.length;
     document.getElementById('resultMales').value = males.join('\n');
     document.getElementById('resultFemales').value = females.join('\n');
     document.getElementById('resultSub').textContent = 'Re-filtré Groq : ' + males.length + ' hommes + ' + females.length + ' femmes';
+    alert('✅ Re-filtre Groq terminé !\n\nAvant : ' + oldMales + ' hommes / ' + oldFemales + ' femmes\nAprès : ' + males.length + ' hommes / ' + females.length + ' femmes\n\nDifférence : ' + (males.length - oldMales) + ' hommes, ' + (females.length - oldFemales) + ' femmes');
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
