@@ -132,9 +132,12 @@ textarea { min-height: 120px; font-family: monospace; }
   </div>
 
   <div class="card" id="resultCard" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
       <h3 style="margin:0">✅ Queue terminée</h3>
-      <button onclick="refilterGroq()" id="refilterBtn" style="background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;border:none;padding:8px 16px;border-radius:10px;font-weight:700;cursor:pointer;font-size:13px">⚡ Re-filtrer avec Groq (95% précis)</button>
+      <div style="display:flex;gap:8px">
+        <button onclick="refilterGroq()" id="refilterBtn" style="background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;border:none;padding:8px 16px;border-radius:10px;font-weight:700;cursor:pointer;font-size:13px">⚡ Re-filtrer Groq</button>
+        <button onclick="newQueue()" style="background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none;padding:8px 16px;border-radius:10px;font-weight:700;cursor:pointer;font-size:13px">🔄 Nouveau scrape</button>
+      </div>
     </div>
     <p class="sub" id="resultSub"></p>
 
@@ -628,6 +631,64 @@ function nextGroqKeyQ() {
   return k;
 }
 
+function showMigrationOverlay(movedToFemales, movedToMales) {
+  // Calcule les prenoms qui ont change de cote
+  const overlay = document.createElement('div');
+  overlay.id = 'migOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,14,26,0.95);backdrop-filter:blur(12px);z-index:10000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px;animation:fadeIn 0.4s ease';
+
+  const styleEl = document.createElement('style');
+  styleEl.textContent = '@keyframes fadeIn{from{opacity:0}to{opacity:1}}@keyframes slideInLeft{from{transform:translateX(-100px);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes slideInRight{from{transform:translateX(100px);opacity:0}to{transform:translateX(0);opacity:1}}@keyframes flyLR{0%{transform:translateX(-300px) scale(0.8);opacity:0}50%{opacity:1}100%{transform:translateX(0) scale(1);opacity:1}}@keyframes flyRL{0%{transform:translateX(300px) scale(0.8);opacity:0}50%{opacity:1}100%{transform:translateX(0) scale(1);opacity:1}}';
+  overlay.appendChild(styleEl);
+
+  const title = document.createElement('h1');
+  title.textContent = '⚡ Groq a reclassé';
+  title.style.cssText = 'color:#fff;font-size:34px;font-weight:800;margin-bottom:8px;background:linear-gradient(90deg,#3b82f6,#f97316);-webkit-background-clip:text;-webkit-text-fill-color:transparent';
+  overlay.appendChild(title);
+
+  const sub = document.createElement('div');
+  sub.textContent = (movedToMales.length + movedToFemales.length) + ' corrections via IA';
+  sub.style.cssText = 'color:#9ca3af;margin-bottom:40px;font-size:15px';
+  overlay.appendChild(sub);
+
+  const cols = document.createElement('div');
+  cols.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:40px;max-width:900px;width:100%;max-height:60vh';
+
+  const makeCol = (title, color, items, fly) => {
+    const col = document.createElement('div');
+    col.style.cssText = 'background:rgba(255,255,255,0.03);border:1px solid ' + color + '44;border-radius:20px;padding:24px;overflow-y:auto;max-height:60vh';
+    const h = document.createElement('h2');
+    h.textContent = title + ' (' + items.length + ')';
+    h.style.cssText = 'color:' + color + ';font-size:18px;margin-bottom:16px;font-weight:700';
+    col.appendChild(h);
+    items.slice(0, 50).forEach((name, i) => {
+      const pill = document.createElement('div');
+      pill.textContent = '@' + name;
+      pill.style.cssText = 'background:rgba(255,255,255,0.06);border:1px solid ' + color + '33;color:#fff;padding:8px 14px;border-radius:10px;margin-bottom:6px;font-size:13px;font-family:monospace;opacity:0;animation:' + fly + ' 0.5s ease ' + (i * 0.04) + 's forwards';
+      col.appendChild(pill);
+    });
+    if (items.length > 50) {
+      const more = document.createElement('div');
+      more.textContent = '... et ' + (items.length - 50) + ' autres';
+      more.style.cssText = 'color:#6b7280;font-size:12px;text-align:center;margin-top:8px;font-style:italic';
+      col.appendChild(more);
+    }
+    return col;
+  };
+
+  cols.appendChild(makeCol('👨 → 👩 déplacés vers Femmes', '#f472b6', movedToFemales, 'flyLR'));
+  cols.appendChild(makeCol('👩 → 👨 déplacés vers Hommes', '#34d399', movedToMales, 'flyRL'));
+  overlay.appendChild(cols);
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Fermer';
+  closeBtn.style.cssText = 'margin-top:30px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);color:#fff;border:none;padding:14px 40px;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer';
+  closeBtn.onclick = () => overlay.remove();
+  overlay.appendChild(closeBtn);
+
+  document.body.appendChild(overlay);
+}
+
 function animateNumber(id, from, to) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -725,6 +786,16 @@ async function refilterGroq() {
       await Promise.all(batches.slice(i, i + PARALLEL).map(processBatch));
     }
 
+    const oldMalesText = document.getElementById('resultMales').value;
+    const oldFemalesText = document.getElementById('resultFemales').value;
+    const oldMalesSet = new Set(oldMalesText.split('\n').filter(l => l));
+    const oldFemalesSet = new Set(oldFemalesText.split('\n').filter(l => l));
+
+    const movedToFemales = males.filter(m => oldFemalesSet.has(m)).concat(females.filter(f => oldMalesSet.has(f)));
+    // Recalcule proprement:
+    const movedF = females.filter(f => oldMalesSet.has(f)); // etaient hommes, maintenant femmes
+    const movedM = males.filter(m => oldFemalesSet.has(m)); // etaient femmes, maintenant hommes
+
     const oldMales = parseInt(document.getElementById('nbMales').textContent) || 0;
     const oldFemales = parseInt(document.getElementById('nbFemales').textContent) || 0;
     document.getElementById('resultMales').value = males.join('\n');
@@ -732,11 +803,29 @@ async function refilterGroq() {
     document.getElementById('resultSub').textContent = 'Re-filtré Groq IA : ' + males.length + ' hommes + ' + females.length + ' femmes';
     animateNumber('nbMales', oldMales, males.length);
     animateNumber('nbFemales', oldFemales, females.length);
-    showGroqToast(males.length - oldMales, females.length - oldFemales);
+
+    if (movedF.length + movedM.length > 0) {
+      setTimeout(() => showMigrationOverlay(movedF, movedM), 400);
+    } else {
+      showGroqToast(males.length - oldMales, females.length - oldFemales);
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
   }
+}
+
+function newQueue() {
+  currentQid = null;
+  _autoGroqTriggered = false;
+  document.getElementById('setupCard').style.display = 'block';
+  document.getElementById('progressCard').style.display = 'none';
+  document.getElementById('poolCard').style.display = 'none';
+  document.getElementById('resultCard').style.display = 'none';
+  document.getElementById('targets').value = '';
+  const br = document.getElementById('targetsBreakdown');
+  if (br) while (br.firstChild) br.removeChild(br.firstChild);
+  window.scrollTo({top: 0, behavior: 'smooth'});
 }
 
 function copyResult() {
