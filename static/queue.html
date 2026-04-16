@@ -588,6 +588,7 @@ function renderProgress(st) {
   document.getElementById('globalPct').textContent = 'Progression : ' + totalChecked + ' / ' + totalCandidates + ' (' + pct + '%)';
 }
 
+let _autoGroqTriggered = false;
 function renderResult(st) {
   document.getElementById('resultCard').style.display = 'block';
   const males = st.validated_males || [];
@@ -598,6 +599,12 @@ function renderResult(st) {
   document.getElementById('resultMales').value = males.join('\n');
   document.getElementById('resultFemales').value = females.join('\n');
   document.getElementById('resultList').value = (st.all_validated || []).join('\n');
+
+  // Auto-lance Groq si keys dispo + queue terminee + pas deja fait
+  if (!_autoGroqTriggered && st.status === 'completed' && getGroqKeysQ().length > 0 && (males.length + females.length) > 0) {
+    _autoGroqTriggered = true;
+    setTimeout(() => refilterGroq(), 800);
+  }
 }
 
 function getGroqKeysQ() {
@@ -619,6 +626,47 @@ function nextGroqKeyQ() {
   if (!keys.length) return null;
   const k = keys[groqQIdx]; groqQIdx = (groqQIdx + 1) % keys.length;
   return k;
+}
+
+function animateNumber(id, from, to) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const duration = 800;
+  const start = Date.now();
+  const diff = to - from;
+  const tick = () => {
+    const elapsed = Date.now() - start;
+    const p = Math.min(1, elapsed / duration);
+    const eased = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.round(from + diff * eased);
+    el.style.transform = 'scale(' + (1 + 0.15 * Math.sin(p * Math.PI)) + ')';
+    if (p < 1) requestAnimationFrame(tick);
+    else el.style.transform = 'scale(1)';
+  };
+  requestAnimationFrame(tick);
+}
+
+function showGroqToast(diffMales, diffFemales) {
+  let toast = document.getElementById('groqToast');
+  if (toast) toast.remove();
+  toast = document.createElement('div');
+  toast.id = 'groqToast';
+  toast.style.cssText = 'position:fixed;top:30px;right:30px;background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;padding:18px 26px;border-radius:16px;box-shadow:0 10px 40px rgba(249,115,22,0.4);z-index:9999;font-family:-apple-system,sans-serif;min-width:280px;transform:translateX(400px);opacity:0;transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1)';
+
+  const title = document.createElement('div');
+  title.textContent = '⚡ Groq a fini';
+  title.style.cssText = 'font-size:16px;font-weight:800;margin-bottom:6px';
+  toast.appendChild(title);
+
+  const sub = document.createElement('div');
+  sub.style.cssText = 'font-size:13px;opacity:0.95';
+  const sign = (n) => n >= 0 ? '+' + n : String(n);
+  sub.textContent = '👨 ' + sign(diffMales) + ' hommes • 👩 ' + sign(diffFemales) + ' femmes';
+  toast.appendChild(sub);
+
+  document.body.appendChild(toast);
+  setTimeout(() => { toast.style.transform = 'translateX(0)'; toast.style.opacity = '1'; }, 50);
+  setTimeout(() => { toast.style.transform = 'translateX(400px)'; toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 5000);
 }
 
 async function refilterGroq() {
@@ -679,12 +727,12 @@ async function refilterGroq() {
 
     const oldMales = parseInt(document.getElementById('nbMales').textContent) || 0;
     const oldFemales = parseInt(document.getElementById('nbFemales').textContent) || 0;
-    document.getElementById('nbMales').textContent = males.length;
-    document.getElementById('nbFemales').textContent = females.length;
     document.getElementById('resultMales').value = males.join('\n');
     document.getElementById('resultFemales').value = females.join('\n');
-    document.getElementById('resultSub').textContent = 'Re-filtré Groq : ' + males.length + ' hommes + ' + females.length + ' femmes';
-    alert('✅ Re-filtre Groq terminé !\n\nAvant : ' + oldMales + ' hommes / ' + oldFemales + ' femmes\nAprès : ' + males.length + ' hommes / ' + females.length + ' femmes\n\nDifférence : ' + (males.length - oldMales) + ' hommes, ' + (females.length - oldFemales) + ' femmes');
+    document.getElementById('resultSub').textContent = 'Re-filtré Groq IA : ' + males.length + ' hommes + ' + females.length + ' femmes';
+    animateNumber('nbMales', oldMales, males.length);
+    animateNumber('nbFemales', oldFemales, females.length);
+    showGroqToast(males.length - oldMales, females.length - oldFemales);
   } finally {
     btn.disabled = false;
     btn.textContent = originalText;
