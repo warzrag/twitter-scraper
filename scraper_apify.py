@@ -10,7 +10,7 @@ import asyncio
 import time
 import random
 import re
-from urllib.parse import urlparse, parse_qs, quote
+from urllib.parse import urlparse, parse_qs, parse_qsl, urlencode
 from typing import Optional, AsyncGenerator
 from playwright.async_api import async_playwright, Page, Request, Response
 
@@ -41,6 +41,7 @@ class ApifyStyleScraper:
         self.captured_request_headers = None
         self.captured_features = None
         self.captured_variables_template = None
+        self._debug_dm_samples = 0
 
     async def start(self):
         """Démarre le navigateur et récupère les tokens."""
@@ -287,20 +288,19 @@ class ApifyStyleScraper:
             # IMPORTANT: Utiliser le même format que Twitter
             # Modifier le JSON des variables pour ajouter le cursor
             variables_json = json.dumps(variables, separators=(',', ':'))
+            original_params = parse_qsl(captured["original_query_string"], keep_blank_values=True)
+            next_params = []
+            replaced_variables = False
+            for key, value in original_params:
+                if key == "variables":
+                    next_params.append((key, variables_json))
+                    replaced_variables = True
+                else:
+                    next_params.append((key, value))
+            if not replaced_variables:
+                next_params.insert(0, ("variables", variables_json))
 
-            # Utiliser les features BRUTES (exactement comme Twitter les a envoyées)
-            features_encoded = quote(captured["features_raw"], safe='')
-
-            # Encoder les nouvelles variables
-            variables_encoded = quote(variables_json, safe='')
-
-            request_url = f"{captured['base_url']}?variables={variables_encoded}&features={features_encoded}"
-
-            # Ajouter fieldToggles si présent dans la requête originale
-            if captured.get("field_toggles"):
-                field_toggles_json = json.dumps(captured["field_toggles"], separators=(',', ':'))
-                field_toggles_encoded = quote(field_toggles_json, safe='')
-                request_url += f"&fieldToggles={field_toggles_encoded}"
+            request_url = f"{captured['base_url']}?{urlencode(next_params)}"
 
             print(f"[APIFY] URL originale (début): {captured['original_url'][:150]}...")
             print(f"[APIFY] URL pagination (début): {request_url[:150]}...")
@@ -327,6 +327,43 @@ class ApifyStyleScraper:
                         "body": body[:500] if body else ""
                     }
                     print(f"[APIFY] Status: {response.status}, Headers: {dict(response.headers)}")
+                    if response.status == 404:
+                        print("[APIFY] 404 via context.request, retry depuis la page X.com...", flush=True)
+                        browser_result = await self.page.evaluate(
+                            """
+                            async ({ url, headers }) => {
+                                const response = await fetch(url, {
+                                    method: 'GET',
+                                    credentials: 'include',
+                                    headers
+                                });
+                                const text = await response.text();
+                                return {
+                                    status: response.status,
+                                    ok: response.ok,
+                                    text,
+                                    headers: Object.fromEntries(response.headers.entries())
+                                };
+                            }
+                            """,
+                            {"url": request_url, "headers": headers_to_send}
+                        )
+                        if browser_result.get("status") == 429:
+                            result = {"error": "rate_limit", "status": 429}
+                        elif browser_result.get("status") == 200:
+                            result = json.loads(browser_result.get("text") or "{}")
+                            print("[APIFY] Retry page X.com OK", flush=True)
+                        else:
+                            result = {
+                                "error": "http_error",
+                                "status": browser_result.get("status"),
+                                "body": (browser_result.get("text") or "")[:500],
+                            }
+                            print(
+                                f"[APIFY] Retry page X.com status: {browser_result.get('status')}, "
+                                f"headers: {browser_result.get('headers')}",
+                                flush=True,
+                            )
                 else:
                     result = await response.json()
 
@@ -435,12 +472,26 @@ class ApifyStyleScraper:
             # can_dm et can_media_tag - vérifier plusieurs emplacements
             can_dm = (
                 user_result.get("can_dm") or
-                dm_permissions.get("can_dm", False)
+                dm_permissions.get("can_dm") or
+                legacy.get("can_dm", False)
             )
             can_media_tag = (
                 user_result.get("can_media_tag") or
-                media_permissions.get("can_media_tag", False)
+                media_permissions.get("can_media_tag") or
+                legacy.get("can_media_tag", False)
             )
+
+            if self._debug_dm_samples < 5:
+                self._debug_dm_samples += 1
+                print(
+                    "[APIFY] DM sample "
+                    f"@{core.get('screen_name') or legacy.get('screen_name')}: "
+                    f"user.can_dm={user_result.get('can_dm')} "
+                    f"dm_permissions.can_dm={dm_permissions.get('can_dm')} "
+                    f"legacy.can_dm={legacy.get('can_dm')} "
+                    f"can_media_tag={can_media_tag}",
+                    flush=True,
+                )
 
             # screen_name - vérifier core d'abord (structure 2026), puis legacy
             username = (

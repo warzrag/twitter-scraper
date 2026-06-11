@@ -122,7 +122,7 @@ textarea { min-height: 120px; font-family: monospace; }
     <div class="stats">
       <div class="stat"><div class="stat-val" id="sTargets">0/0</div><div class="stat-lab">Cibles finies</div></div>
       <div class="stat"><div class="stat-val" id="sScraped">0</div><div class="stat-lab">Total scrapés</div></div>
-      <div class="stat"><div class="stat-val" id="sValidated" style="color:#34d399">0</div><div class="stat-lab">Validés OK</div></div>
+      <div class="stat"><div class="stat-val" id="sValidated" style="color:#34d399">0</div><div class="stat-lab">DM trouvés</div></div>
     </div>
     <div style="background:rgba(255,255,255,0.05);border-radius:100px;height:10px;overflow:hidden;margin-bottom:8px;">
       <div id="globalBar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);width:0%;transition:width 0.5s ease;"></div>
@@ -456,25 +456,54 @@ async function previewTargets() {
 }
 
 async function startQueue() {
+  console.log('[QUEUE UI] startQueue clicked');
   const targets = document.getElementById('targets').value.split('\n').map(s => s.trim()).filter(s => s);
+  console.log('[QUEUE UI] targets:', targets);
   if (targets.length === 0) { alert('Colle au moins 1 cible'); return; }
 
   let cookies;
   try {
-    cookies = JSON.parse(document.getElementById('cookies').value);
-  } catch {
-    alert('Cookies invalides (JSON array requis)');
+    const rawCookies = document.getElementById('cookies').value;
+    console.log('[QUEUE UI] raw cookies length:', rawCookies.length);
+    cookies = JSON.parse(rawCookies);
+    console.log('[QUEUE UI] cookies parsed:', Array.isArray(cookies) ? cookies.map(c => c.name) : cookies);
+  } catch (err) {
+    console.error('[QUEUE UI] cookies JSON parse failed:', err);
+    alert('Cookies invalides (JSON array requis): ' + err.message);
+    return;
+  }
+
+  if (!Array.isArray(cookies)) {
+    console.error('[QUEUE UI] cookies is not an array:', cookies);
+    alert('Cookies invalides: colle un JSON array, exemple [{"name":"auth_token","value":"..."},{"name":"ct0","value":"..."}]');
     return;
   }
 
   const maxPer = parseInt(document.getElementById('maxPer').value) || null;
   const parallel = parseInt(document.getElementById('parallel').value) || 3;
+  const payload = {targets, cookies, max_per_target: maxPer, parallel};
+  console.log('[QUEUE UI] POST /api/queue/start payload:', {
+    targets,
+    cookieNames: cookies.map(c => c && c.name),
+    max_per_target: maxPer,
+    parallel
+  });
 
-  const resp = await fetch('/api/queue/start', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({targets, cookies, max_per_target: maxPer, parallel})
-  }).then(r => r.json());
+  let resp;
+  try {
+    const httpResp = await fetch('/api/queue/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    console.log('[QUEUE UI] /api/queue/start status:', httpResp.status);
+    resp = await httpResp.json();
+    console.log('[QUEUE UI] /api/queue/start response:', resp);
+  } catch (err) {
+    console.error('[QUEUE UI] /api/queue/start failed:', err);
+    alert('Erreur reseau au lancement: ' + err.message);
+    return;
+  }
 
   if (!resp.queue_id) { alert('Erreur : ' + (resp.detail || '?')); return; }
 
@@ -553,10 +582,11 @@ function renderProgress(st) {
   const entries = Object.entries(st.targets);
   const done = entries.filter(([_, v]) => v.status === 'done').length;
   const totalScraped = entries.reduce((s, [_, v]) => s + v.scraped, 0);
+  const totalDmFound = entries.reduce((s, [_, v]) => s + (v.dm_found || 0), 0);
 
   document.getElementById('sTargets').textContent = done + '/' + entries.length;
   document.getElementById('sScraped').textContent = totalScraped;
-  document.getElementById('sValidated').textContent = st.total_validated;
+  document.getElementById('sValidated').textContent = totalDmFound;
 
   const list = document.getElementById('targetsList');
   while (list.firstChild) list.removeChild(list.firstChild);
@@ -580,7 +610,17 @@ function renderProgress(st) {
     } else {
       sc.textContent = 'Scrapés: ' + data.scraped;
     }
-    const v = document.createElement('div'); v.textContent = '✅ ' + data.validated; v.style.color = '#34d399';
+    const v = document.createElement('div');
+    const diag = [];
+    if (data.dm_found !== undefined) diag.push('DM trouves ' + data.dm_found);
+    if (data.duplicate_dm) diag.push('deja vus DM ' + data.duplicate_dm);
+    if (data.dm_closed) diag.push('fermes ' + data.dm_closed);
+    if (data.duplicates) diag.push('doublons total ' + data.duplicates);
+    if (data.missing_username) diag.push('sans username ' + data.missing_username);
+    if (data.last_error) diag.push('err: ' + data.last_error);
+    v.textContent = 'DM ' + (data.dm_found || 0) + ' | nouveaux ' + data.validated + (diag.length ? ' | ' + diag.join(' | ') : '');
+    v.style.color = '#34d399';
+    v.title = data.last_user ? 'Dernier profil: @' + data.last_user : '';
     row.appendChild(n); row.appendChild(s); row.appendChild(sc); row.appendChild(v);
     list.appendChild(row);
   }
@@ -596,7 +636,12 @@ function renderResult(st) {
   document.getElementById('resultCard').style.display = 'block';
   const males = st.validated_males || [];
   const females = st.validated_females || [];
-  document.getElementById('resultSub').textContent = st.total_validated + ' cibles 100% can_dm (' + males.length + ' hommes + ' + females.length + ' femmes)';
+  const totalDmFound = st.total_dm_found || 0;
+  const duplicateDm = st.total_duplicate_dm || 0;
+  document.getElementById('resultSub').textContent =
+    st.total_validated + ' nouveaux exportables sur ' + totalDmFound +
+    ' DM trouves (' + duplicateDm + ' deja dans l historique) - ' +
+    males.length + ' hommes + ' + females.length + ' femmes';
   document.getElementById('nbMales').textContent = males.length;
   document.getElementById('nbFemales').textContent = females.length;
   document.getElementById('resultMales').value = males.join('\n');

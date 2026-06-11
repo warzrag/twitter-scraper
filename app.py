@@ -378,19 +378,32 @@ class QueueStartRequest(BaseModel):
 @app.post("/api/queue/start")
 async def queue_start(request: QueueStartRequest):
     """Lance une queue multi-cibles : scrape + auto-valide chaque cible."""
-    try:
-        pool = CookiePool()
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Pool indispo: {e}")
-
     targets = [t.strip().lstrip("@").replace("https://x.com/", "").replace("https://twitter.com/", "") for t in request.targets if t.strip()]
     if not targets:
         raise HTTPException(status_code=400, detail="Aucune cible")
 
     qid = str(uuid.uuid4())[:8]
+    print(f"[QUEUE {qid}] START targets={targets} max_per_target={request.max_per_target} parallel={request.parallel}", flush=True)
     queue_jobs[qid] = {
         "status": "running",
-        "targets": {t: {"status": "pending", "scraped": 0, "validated": 0, "candidates": 0, "checked": 0} for t in targets},
+        "targets": {
+            t: {
+                "status": "pending",
+                "scraped": 0,
+                "validated": 0,
+                "candidates": 0,
+                "checked": 0,
+                "dm_found": 0,
+                "dm_closed": 0,
+                "duplicates": 0,
+                "duplicate_dm": 0,
+                "duplicate_closed": 0,
+                "missing_username": 0,
+                "last_user": None,
+                "last_error": None,
+            }
+            for t in targets
+        },
         "total_validated": 0,
         "all_validated": [],
         "started_at": datetime.now().isoformat(),
@@ -400,71 +413,143 @@ async def queue_start(request: QueueStartRequest):
     scrape_cookies = parse_cookies(request.cookies)
 
     async def process_target(target: str):
+        scraper = None
+        target_state = queue_jobs[qid]["targets"][target]
         try:
-            queue_jobs[qid]["targets"][target]["status"] = "scraping"
-            scraper = TwitterScraper(cookies=scrape_cookies, min_wait=1.0, max_wait=3.0)
-            info = scraper.get_user_info(target)
-            if not info or not info.get("id"):
-                queue_jobs[qid]["targets"][target]["status"] = "error_not_found"
-                scraper.close()
-                return
-
-            user_id = str(info["id"])
+            print(f"[QUEUE {qid}] @{target} start", flush=True)
+            target_state["status"] = "scraping"
             history = load_history()
-            candidates = []  # (user_id, username, name)
             skipped_dup = 0
             count = 0
-            try:
-                for u in scraper.scrape_list_v1(user_id, list_type="followers", max_records=request.max_per_target, check_dm=False):
-                    count += 1
-                    uname = (u.get("username") or "").strip()
-                    name = (u.get("name") or "").strip()
-                    if u.get("can_dm") in (True, "true", "True"):
-                        if uname.lower() in history:
-                            skipped_dup += 1
-                        else:
-                            candidates.append((str(u.get("id") or u.get("user_id") or ""), uname, name))
-                    queue_jobs[qid]["targets"][target]["scraped"] = count
-            except Exception as e:
-                print(f"[QUEUE] Scrape error {target}: {e}")
-            scraper.close()
-            queue_jobs[qid]["targets"][target]["skipped_dup"] = skipped_dup
+            dm_true = 0
+            dm_false = 0
+            duplicate_dm = 0
+            duplicate_closed = 0
+            missing_username = 0
+            seen_usernames = set()
 
-            queue_jobs[qid]["targets"][target]["status"] = "validating"
-            queue_jobs[qid]["targets"][target]["candidates"] = len(candidates)
-            # Valide via pool
-            validated_here = []
-            for uid, uname, name in candidates:
-                if not uid or not uname:
-                    continue
-                cookie = pool.get_next()
-                if not cookie:
-                    await asyncio.sleep(30)
-                    continue
-                cd = pool.to_dict(cookie)
-                px = pool.get_proxy(cookie)
-                try:
-                    s = TwitterScraper(cookies=cd, proxy=px, min_wait=0.1, max_wait=0.3)
-                    can_dm = s.check_can_dm(uid)
-                    s.close()
-                    pool.report_success(cookie)
+            def handle_user(u: dict) -> None:
+                nonlocal count, dm_true, dm_false, duplicate_dm, duplicate_closed, missing_username, skipped_dup
+                uname = (u.get("username") or "").strip()
+                name = (u.get("name") or "").strip()
+                can_dm = u.get("can_dm") in (True, "true", "True")
+                user_key = (uname or str(u.get("id") or "")).lower()
+
+                if user_key and user_key in seen_usernames:
+                    return
+                if user_key:
+                    seen_usernames.add(user_key)
+
+                count += 1
+
+                target_state["scraped"] = count
+                target_state["checked"] = count
+                target_state["candidates"] = count
+                target_state["last_user"] = uname or str(u.get("id") or "")
+
+                if not uname:
+                    missing_username += 1
+                    target_state["missing_username"] = missing_username
+                    return
+
+                if can_dm:
+                    dm_true += 1
+                    target_state["dm_found"] = dm_true
+                else:
+                    dm_false += 1
+                    target_state["dm_closed"] = dm_false
+
+                uname_key = uname.lower()
+                if uname_key in history:
+                    skipped_dup += 1
+                    target_state["duplicates"] = skipped_dup
                     if can_dm:
-                        validated_here.append(uname)
-                        queue_jobs[qid]["targets"][target]["validated"] += 1
-                        queue_jobs[qid]["total_validated"] += 1
-                        queue_jobs[qid]["all_validated"].append(uname)
-                        queue_jobs[qid].setdefault("all_validated_with_name", []).append({"username": uname, "name": name})
-                except httpx.HTTPStatusError as he:
-                    pool.report_error(cookie, he.response.status_code)
-                except Exception:
-                    pool.report_error(cookie, 500)
-                queue_jobs[qid]["targets"][target]["checked"] += 1
-                await asyncio.sleep(0.4)
+                        duplicate_dm += 1
+                        target_state["duplicate_dm"] = duplicate_dm
+                    else:
+                        duplicate_closed += 1
+                        target_state["duplicate_closed"] = duplicate_closed
+                    return
 
-            queue_jobs[qid]["targets"][target]["status"] = "done"
+                if can_dm:
+                    target_state["validated"] += 1
+                    queue_jobs[qid]["total_validated"] += 1
+                    queue_jobs[qid]["all_validated"].append(uname)
+                    queue_jobs[qid].setdefault("all_validated_with_name", []).append({"username": uname, "name": name})
+
+                if count % 50 == 0:
+                    print(
+                        f"[QUEUE {qid}] @{target} progress scraped={count} dm_found={dm_true} "
+                        f"new_validated={target_state['validated']} closed={dm_false} "
+                        f"dup={skipped_dup} dup_dm={duplicate_dm} missing_username={missing_username}",
+                        flush=True,
+                    )
+
+            # Ancien flux: API v1.1 approximative -> friendships/show -> beaucoup de faux 0.
+            # Nouveau flux: GraphQL/Apify lit directement dm_permissions.can_dm dans la liste.
+            scraper = ApifyStyleScraper(cookies=request.cookies, headless=True)
+            print(f"[QUEUE {qid}] @{target} launching GraphQL/Apify scraper", flush=True)
+            await scraper.start()
+
+            target_state["status"] = "validating"
+            print(f"[QUEUE {qid}] @{target} scraping followers with direct can_dm", flush=True)
+
+            async for u in scraper.scrape_followers(
+                target,
+                list_type="followers",
+                max_records=request.max_per_target,
+            ):
+                handle_user(u)
+
+            should_fallback = count == 0
+            if request.max_per_target and count < request.max_per_target:
+                should_fallback = True
+
+            if should_fallback:
+                print(
+                    f"[QUEUE {qid}] @{target} Apify returned {count}/{request.max_per_target or 'all'} users, "
+                    "falling back to Playwright scroll",
+                    flush=True,
+                )
+                target_state["status"] = "fallback_playwright"
+                await scraper.close()
+                scraper = TwitterPlaywrightScraper(cookies=request.cookies, headless=True)
+                await scraper.start()
+
+                async for u in scraper.scrape_followers(
+                    target,
+                    list_type="followers",
+                    max_records=request.max_per_target,
+                ):
+                    handle_user(u)
+
+            target_state["duplicates"] = skipped_dup
+            target_state["skipped_dup"] = skipped_dup
+            target_state["dm_found"] = dm_true
+            target_state["duplicate_dm"] = duplicate_dm
+            target_state["duplicate_closed"] = duplicate_closed
+            target_state["dm_closed"] = dm_false
+            target_state["missing_username"] = missing_username
+            target_state["status"] = "done"
+            print(
+                f"[QUEUE {qid}] @{target} DONE scraped={count} dm_found={dm_true} "
+                f"new_validated={target_state['validated']} closed={dm_false} "
+                f"dup={skipped_dup} dup_dm={duplicate_dm} missing_username={missing_username}",
+                flush=True,
+            )
         except Exception as e:
-            queue_jobs[qid]["targets"][target]["status"] = "error"
-            queue_jobs[qid]["targets"][target]["error"] = str(e)
+            target_state["status"] = "error"
+            target_state["error"] = str(e)
+            target_state["last_error"] = str(e)
+            print(f"[QUEUE {qid}] @{target} ERROR: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+        finally:
+            if scraper:
+                try:
+                    await scraper.close()
+                except Exception:
+                    pass
 
     async def orchestrator():
         sem = asyncio.Semaphore(request.parallel)
@@ -493,7 +578,7 @@ async def queue_start(request: QueueStartRequest):
         append_history(queue_jobs[qid]["all_validated"])
         queue_jobs[qid]["status"] = "completed"
 
-    # Lance dans un thread pour ne pas bloquer l'event loop avec httpx sync
+    # Lance dans un thread pour isoler la session Playwright de l'event loop FastAPI.
     import threading
     def run_in_thread():
         asyncio.run(orchestrator())
@@ -525,6 +610,8 @@ async def queue_status(qid: str):
         "status": j["status"],
         "targets": j["targets"],
         "total_validated": j["total_validated"],
+        "total_dm_found": sum(t.get("dm_found", 0) for t in j["targets"].values()),
+        "total_duplicate_dm": sum(t.get("duplicate_dm", 0) for t in j["targets"].values()),
         "parallel": j.get("parallel", 3),
         "all_validated": j["all_validated"],
         "validated_males": males,

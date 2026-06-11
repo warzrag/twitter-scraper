@@ -36,6 +36,7 @@ class TwitterPlaywrightScraper:
         self.is_capturing = False
         self.rate_limited = False
         self.rate_limit_wait = 0
+        self._debug_dm_samples = 0
 
     async def start(self):
         """Démarre le navigateur et injecte les cookies."""
@@ -154,16 +155,34 @@ class TwitterPlaywrightScraper:
                     if not user_result:
                         continue
 
+                    legacy = user_result.get("legacy", {})
+
                     # Extraire les données - Apify format
-                    # Le VRAI can_dm est directement dans user_result
+                    # Twitter déplace parfois can_dm entre user_result, dm_permissions et legacy.
                     can_dm = user_result.get("can_dm", False)
                     can_media_tag = user_result.get("can_media_tag", False)
 
                     # Fallback sur les sous-objets si nécessaire
                     if not can_dm and "dm_permissions" in user_result:
                         can_dm = user_result.get("dm_permissions", {}).get("can_dm", False)
+                    if not can_dm:
+                        can_dm = legacy.get("can_dm", False)
                     if not can_media_tag and "media_permissions" in user_result:
                         can_media_tag = user_result.get("media_permissions", {}).get("can_media_tag", False)
+                    if not can_media_tag:
+                        can_media_tag = legacy.get("can_media_tag", False)
+
+                    if self._debug_dm_samples < 5:
+                        self._debug_dm_samples += 1
+                        print(
+                            "[PLAYWRIGHT] DM sample "
+                            f"@{user_result.get('screen_name') or user_result.get('core', {}).get('screen_name') or legacy.get('screen_name')}: "
+                            f"user.can_dm={user_result.get('can_dm')} "
+                            f"dm_permissions.can_dm={user_result.get('dm_permissions', {}).get('can_dm')} "
+                            f"legacy.can_dm={legacy.get('can_dm')} "
+                            f"can_media_tag={can_media_tag}",
+                            flush=True,
+                        )
 
                     # Données de base
                     user_id = user_result.get("rest_id") or user_result.get("id")
@@ -185,7 +204,6 @@ class TwitterPlaywrightScraper:
                         continue
 
                     # Autres données
-                    legacy = user_result.get("legacy", {})
                     privacy = user_result.get("privacy", {})
                     location_obj = user_result.get("location", {})
 
