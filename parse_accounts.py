@@ -1,13 +1,15 @@
 """
 Parse un fichier de comptes au format shop standard et genere cookies_pool.json.
 
-Format attendu (1 ligne par compte) :
+Format accepte (1 ligne par compte) :
+    user:password:email:email_password:totp_secret:auth_token
     user:password:email:email_password:ct0:auth_token:totp_secret
 
 Le script tolere des variantes :
 - Avec/sans email_password
 - Avec/sans totp_secret
 - Auto-detection ct0 (long) vs auth_token (40 chars hex)
+- Si ct0 manque, l'API web tentera de le recuperer avec auth_token
 
 Usage:
     python parse_accounts.py accounts.txt
@@ -33,43 +35,29 @@ def parse_line(line: str) -> dict | None:
         return None
 
     user = parts[0]
-    password = parts[1]
-    email = None
-    email_pwd = None
+    # Les champs sensibles de login ne sont pas conserves. Seuls les cookies
+    # utiles au scraper sont ecrits dans cookies_pool.json.
     ct0 = None
     auth_token = None
-    totp = None
 
     # On scanne les autres colonnes et on devine
     for p in parts[2:]:
         if not p:
             continue
-        if "@" in p and not email:
-            email = p
-        elif HEX40.match(p) and not auth_token:
+        if HEX40.match(p) and not auth_token:
             auth_token = p
         elif HEX_LONG.match(p) and not ct0:
             ct0 = p
-        elif TOTP.match(p) and not totp:
-            totp = p
-        elif not email_pwd and not (HEX40.match(p) or HEX_LONG.match(p) or TOTP.match(p)):
-            email_pwd = p
 
-    if not auth_token or not ct0:
+    if not auth_token:
         return None  # cookies indispensables
 
     entry = {
         "user": user,
-        "password": password,
         "auth_token": auth_token,
-        "ct0": ct0,
     }
-    if email:
-        entry["email"] = email
-    if email_pwd:
-        entry["email_password"] = email_pwd
-    if totp:
-        entry["totp"] = totp
+    if ct0:
+        entry["ct0"] = ct0
     return entry
 
 
@@ -97,7 +85,8 @@ def main():
     print()
     print("Apercu :")
     for c in pool[:3]:
-        print(f"  {c['user']:20s}  ct0={c['ct0'][:12]}...  auth={c['auth_token'][:12]}...  2fa={'oui' if c.get('totp') else 'non'}")
+        ct0 = c.get("ct0", "")
+        print(f"  {c['user']:20s}  ct0={(ct0[:12] + '...') if ct0 else 'manquant'}  auth={c['auth_token'][:12]}...")
     if len(pool) > 3:
         print(f"  ... et {len(pool) - 3} autres")
 

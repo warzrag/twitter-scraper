@@ -2,9 +2,10 @@
 Extraction batch des cookies X pour le pool, avec 2FA TOTP auto.
 
 Entree : credentials.txt (1 ligne par compte)
-Format :
-    user:password:totp_secret
+Formats acceptes :
+    user:password:email:email_password:totp_secret:auth_token
     user:password:totp_secret:email
+    user:password
 
 totp_secret = la cle TOTP brute (ex: JBSWY3DPEHPK3PXP), celle que tu
 mettrais dans 2fa.live ou Google Authenticator. Sans espaces.
@@ -20,12 +21,16 @@ Usage:
 import json
 import asyncio
 from pathlib import Path
+import re
+import sys
 import pyotp
 from playwright.async_api import async_playwright
 
-CREDS_FILE = "credentials.txt"
+CREDS_FILE = sys.argv[1] if len(sys.argv) > 1 else "credentials.txt"
 POOL_FILE = "cookies_pool.json"
 TIMEOUT_LOGIN_MS = 90_000  # 90s de marge si X demande captcha
+HEX40 = re.compile(r"^[a-f0-9]{40}$", re.IGNORECASE)
+TOTP = re.compile(r"^[A-Z2-7]{16,}$")
 
 
 def load_credentials(path: str) -> list:
@@ -42,14 +47,29 @@ def load_credentials(path: str) -> list:
         ln = ln.strip()
         if not ln or ln.startswith("#"):
             continue
-        parts = ln.split(":")
+        parts = [p.strip() for p in ln.split(":")]
         if len(parts) < 2:
             continue
+        user = parts[0]
+        password = parts[1]
+        email = None
+        totp = None
+        auth_token = None
+        for p in parts[2:]:
+            if not p:
+                continue
+            if "@" in p and not email:
+                email = p
+            elif HEX40.match(p) and not auth_token:
+                auth_token = p
+            elif TOTP.match(p) and not totp:
+                totp = p.replace(" ", "")
         creds.append({
-            "user": parts[0].strip(),
-            "password": parts[1].strip(),
-            "totp": parts[2].strip().replace(" ", "") if len(parts) > 2 else None,
-            "email": parts[3].strip() if len(parts) > 3 else None,
+            "user": user,
+            "password": password,
+            "totp": totp,
+            "email": email,
+            "auth_token": auth_token,
         })
     return creds
 
@@ -78,6 +98,31 @@ async def grab_one(page, cred: dict) -> dict | None:
     user = cred["user"]
     print(f"\n=== {user} ===")
     try:
+        # Si un auth_token est deja fourni, on tente d'abord de reconstruire
+        # une session et de recuperer ct0 sans saisir le mot de passe.
+        if cred.get("auth_token"):
+            await page.context.clear_cookies()
+            await page.context.add_cookies([{
+                "name": "auth_token",
+                "value": cred["auth_token"],
+                "domain": ".x.com",
+                "path": "/",
+                "httpOnly": True,
+                "secure": True,
+                "sameSite": "None",
+            }])
+            await page.goto("https://x.com/home", timeout=30_000)
+            await page.wait_for_timeout(3000)
+            cookies = await page.context.cookies("https://x.com")
+            cookie_dict = {c["name"]: c["value"] for c in cookies}
+            auth = cookie_dict.get("auth_token")
+            ct0 = cookie_dict.get("ct0")
+            if auth and ct0:
+                print(f"  [OK] {user} -> cookies recuperes via auth_token")
+                return {"user": user, "auth_token": auth, "ct0": ct0}
+            print(f"  [INFO] auth_token seul insuffisant pour {user}, tentative login navigateur...")
+            await page.context.clear_cookies()
+
         await page.goto("https://x.com/i/flow/login", timeout=30_000)
         await page.wait_for_timeout(2000)
 

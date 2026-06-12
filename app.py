@@ -287,6 +287,8 @@ async def validate_status(vid: str):
 queue_jobs = {}
 
 HISTORY_FILE = Path("scraped_history.txt")
+DISCOVERED_TARGETS_FILE = Path("discovered_targets.json")
+TARGET_BLACKLIST_FILE = Path("target_blacklist.json")
 
 
 def load_history() -> set:
@@ -299,6 +301,71 @@ def append_history(usernames: list):
     with open(HISTORY_FILE, "a", encoding="utf-8") as f:
         for u in usernames:
             f.write(u + "\n")
+
+
+def append_discovered_targets(items: list):
+    if not items:
+        return
+    existing = {}
+    if DISCOVERED_TARGETS_FILE.exists():
+        try:
+            data = json.loads(DISCOVERED_TARGETS_FILE.read_text(encoding="utf-8"))
+            for item in data if isinstance(data, list) else []:
+                username = (item.get("username") or "").lower()
+                if username:
+                    existing[username] = item
+        except Exception:
+            existing = {}
+    now = datetime.now().isoformat()
+    for item in items:
+        username = (item.get("username") or "").strip().lstrip("@")
+        if not username:
+            continue
+        existing[username.lower()] = {**item, "username": username, "last_seen": now}
+    DISCOVERED_TARGETS_FILE.write_text(
+        json.dumps(list(existing.values()), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def load_target_usernames(path: Path) -> set:
+    if not path.exists():
+        return set()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            out = set()
+            for item in data:
+                if isinstance(item, str):
+                    out.add(item.strip().lstrip("@").lower())
+                elif isinstance(item, dict):
+                    u = (item.get("username") or "").strip().lstrip("@").lower()
+                    if u:
+                        out.add(u)
+            return out
+    except Exception:
+        return set()
+    return set()
+
+
+def append_target_blacklist(usernames: list, reason: str = "manual"):
+    existing = {}
+    if TARGET_BLACKLIST_FILE.exists():
+        try:
+            data = json.loads(TARGET_BLACKLIST_FILE.read_text(encoding="utf-8"))
+            for item in data if isinstance(data, list) else []:
+                u = (item.get("username") or "").strip().lstrip("@").lower()
+                if u:
+                    existing[u] = item
+        except Exception:
+            existing = {}
+    now = datetime.now().isoformat()
+    for username in usernames:
+        u = str(username or "").strip().lstrip("@")
+        if not u:
+            continue
+        existing[u.lower()] = {"username": u, "reason": reason, "added_at": now}
+    TARGET_BLACKLIST_FILE.write_text(json.dumps(list(existing.values()), ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 @app.get("/api/history/stats")
@@ -316,6 +383,33 @@ async def history_clear():
 
 class GenderFilterRequest(BaseModel):
     data: list  # liste d'objets {name, screen_name} ou {name, username}
+
+
+class TargetBlacklistRequest(BaseModel):
+    usernames: list
+    reason: str = "manual"
+
+
+@app.get("/api/targets/state")
+async def targets_state():
+    return {
+        "discovered": len(load_target_usernames(DISCOVERED_TARGETS_FILE)),
+        "blacklisted": len(load_target_usernames(TARGET_BLACKLIST_FILE)),
+    }
+
+
+@app.post("/api/targets/blacklist")
+async def targets_blacklist(request: TargetBlacklistRequest):
+    usernames = [str(u).strip().lstrip("@") for u in request.usernames if str(u).strip()]
+    append_target_blacklist(usernames, request.reason)
+    return {"added": len(usernames), "blacklisted": len(load_target_usernames(TARGET_BLACKLIST_FILE))}
+
+
+@app.post("/api/targets/mark-used")
+async def targets_mark_used(request: TargetBlacklistRequest):
+    usernames = [str(u).strip().lstrip("@") for u in request.usernames if str(u).strip()]
+    append_discovered_targets([{"username": u, "status": "used", "reason": request.reason} for u in usernames])
+    return {"used": len(usernames), "discovered": len(load_target_usernames(DISCOVERED_TARGETS_FILE))}
 
 
 @app.post("/api/gender-filter")
@@ -401,11 +495,18 @@ async def queue_start(request: QueueStartRequest):
                 "missing_username": 0,
                 "last_user": None,
                 "last_error": None,
+                "graphql_stop_reason": None,
+                "fallback_v1_used": False,
+                "dm_source": "certified",
+                "certified_checked": 0,
+                "certification_blocked": 0,
+                "requested_max": request.max_per_target,
             }
             for t in targets
         },
         "total_validated": 0,
         "all_validated": [],
+        "duplicate_dm_with_name": [],
         "started_at": datetime.now().isoformat(),
         "parallel": request.parallel,
     }
@@ -426,12 +527,18 @@ async def queue_start(request: QueueStartRequest):
             duplicate_dm = 0
             duplicate_closed = 0
             missing_username = 0
+            certification_blocked = 0
             seen_usernames = set()
 
             def handle_user(u: dict) -> None:
-                nonlocal count, dm_true, dm_false, duplicate_dm, duplicate_closed, missing_username, skipped_dup
+                nonlocal count, dm_true, dm_false, duplicate_dm, duplicate_closed, missing_username, skipped_dup, certification_blocked
                 uname = (u.get("username") or "").strip()
                 name = (u.get("name") or "").strip()
+                if u.get("verification_blocked"):
+                    certification_blocked += 1
+                    target_state["certification_blocked"] = certification_blocked
+                    target_state["last_user"] = uname or str(u.get("id") or "")
+                    return
                 can_dm = u.get("can_dm") in (True, "true", "True")
                 user_key = (uname or str(u.get("id") or "")).lower()
 
@@ -466,6 +573,7 @@ async def queue_start(request: QueueStartRequest):
                     if can_dm:
                         duplicate_dm += 1
                         target_state["duplicate_dm"] = duplicate_dm
+                        queue_jobs[qid].setdefault("duplicate_dm_with_name", []).append({"username": uname, "name": name})
                     else:
                         duplicate_closed += 1
                         target_state["duplicate_closed"] = duplicate_closed
@@ -501,9 +609,15 @@ async def queue_start(request: QueueStartRequest):
             ):
                 handle_user(u)
 
+            graphql_stop_reason = getattr(scraper, "last_stop_reason", None)
+            target_state["graphql_stop_reason"] = graphql_stop_reason
+            if graphql_stop_reason:
+                print(
+                    f"[QUEUE {qid}] @{target} GraphQL stop reason: {graphql_stop_reason}",
+                    flush=True,
+                )
+
             should_fallback = count == 0
-            if request.max_per_target and count < request.max_per_target:
-                should_fallback = True
 
             if should_fallback:
                 print(
@@ -512,6 +626,7 @@ async def queue_start(request: QueueStartRequest):
                     flush=True,
                 )
                 target_state["status"] = "fallback_playwright"
+                before_fallback_count = count
                 await scraper.close()
                 scraper = TwitterPlaywrightScraper(cookies=request.cookies, headless=True)
                 await scraper.start()
@@ -523,6 +638,79 @@ async def queue_start(request: QueueStartRequest):
                 ):
                     handle_user(u)
 
+                if request.max_per_target and count < request.max_per_target:
+                    if count == before_fallback_count:
+                        target_state["last_error"] = (
+                            f"Arret partiel: X/Playwright n'a pas charge plus que "
+                            f"{count}/{request.max_per_target} profils"
+                            + (f" (GraphQL: {graphql_stop_reason})." if graphql_stop_reason else ".")
+                        )
+                    else:
+                        target_state["last_error"] = (
+                            f"Arret partiel: seulement {count}/{request.max_per_target} profils charges"
+                            + (f" (GraphQL: {graphql_stop_reason})." if graphql_stop_reason else ".")
+                        )
+
+            if request.max_per_target and count < request.max_per_target:
+                target_state["status"] = "fallback_v1"
+                target_state["fallback_v1_used"] = True
+                target_state["dm_source"] = "certified"
+                before_v1_count = count
+                print(
+                    f"[QUEUE {qid}] @{target} completing with API v1.1 "
+                    f"from {count}/{request.max_per_target} and certifying can_dm",
+                    flush=True,
+                )
+                v1_scraper = TwitterScraper(cookies=request.cookies, min_wait=0.2, max_wait=0.5)
+                try:
+                    info = v1_scraper.get_user_info(target)
+                    if info and info.get("id"):
+                        for u in v1_scraper.scrape_list_v1(
+                            str(info["id"]),
+                            list_type="followers",
+                            max_records=request.max_per_target,
+                            check_dm=False,
+                        ):
+                            uname = (u.get("username") or "").strip()
+                            certified = dict(u)
+                            certified["can_dm"] = False
+                            target_state["status"] = "certifying_dm"
+                            uid = certified.get("id")
+                            if uid:
+                                verified_can_dm = v1_scraper.check_can_dm_verified(str(uid))
+                                target_state["certified_checked"] = target_state.get("certified_checked", 0) + 1
+                                if verified_can_dm is None:
+                                    certified["verification_blocked"] = True
+                                    handle_user(certified)
+                                    target_state["last_error"] = (
+                                        f"Verification can_dm bloquee par X apres "
+                                        f"{target_state.get('certified_checked', 0)} controles."
+                                    )
+                                    break
+                                certified["can_dm"] = verified_can_dm
+                            handle_user(certified)
+                            if request.max_per_target and count >= request.max_per_target:
+                                break
+                    else:
+                        target_state["last_error"] = (
+                            (target_state.get("last_error") or "")
+                            + " Fallback v1.1 impossible: cible introuvable."
+                        ).strip()
+                except Exception as e:
+                    target_state["last_error"] = (
+                        (target_state.get("last_error") or "")
+                        + f" Fallback v1.1 erreur: {e}"
+                    ).strip()
+                finally:
+                    v1_scraper.close()
+
+                if count > before_v1_count:
+                    target_state["last_error"] = (
+                        f"GraphQL/Playwright limites a {before_v1_count}; "
+                        f"complete a {count}/{request.max_per_target} via API v1.1 "
+                        "(can_dm certifie par profil)."
+                    )
+
             target_state["duplicates"] = skipped_dup
             target_state["skipped_dup"] = skipped_dup
             target_state["dm_found"] = dm_true
@@ -530,7 +718,11 @@ async def queue_start(request: QueueStartRequest):
             target_state["duplicate_closed"] = duplicate_closed
             target_state["dm_closed"] = dm_false
             target_state["missing_username"] = missing_username
-            target_state["status"] = "done"
+            target_state["certification_blocked"] = certification_blocked
+            if request.max_per_target and count < request.max_per_target:
+                target_state["status"] = "partial"
+            else:
+                target_state["status"] = "done"
             print(
                 f"[QUEUE {qid}] @{target} DONE scraped={count} dm_found={dm_true} "
                 f"new_validated={target_state['validated']} closed={dm_false} "
@@ -560,21 +752,40 @@ async def queue_start(request: QueueStartRequest):
         queue_jobs[qid]["all_validated"] = list(dict.fromkeys(queue_jobs[qid]["all_validated"]))
         queue_jobs[qid]["total_validated"] = len(queue_jobs[qid]["all_validated"])
         # Split par genre
-        from gender_detector import detect_gender
+        from gender_detector import detect_gender_confident
         all_with_name = queue_jobs[qid].get("all_validated_with_name", [])
         seen = set()
-        males, females = [], []
+        males, females, unknowns = [], [], []
         for item in all_with_name:
             u = item["username"].lower()
             if u in seen: continue
             seen.add(u)
-            g = detect_gender(item.get("name", ""))
+            g = detect_gender((item.get("name", "") + " " + item.get("username", "")).strip())
             if g == "female":
                 females.append(item["username"])
-            else:
+            elif g == "male":
                 males.append(item["username"])
+            else:
+                unknowns.append(item["username"])
         queue_jobs[qid]["validated_males"] = males
         queue_jobs[qid]["validated_females"] = females
+        queue_jobs[qid]["validated_unknowns"] = unknowns
+        duplicate_seen = set()
+        duplicate_males, duplicate_females, duplicate_unknowns = [], [], []
+        for item in queue_jobs[qid].get("duplicate_dm_with_name", []):
+            u = item["username"].lower()
+            if u in duplicate_seen: continue
+            duplicate_seen.add(u)
+            g = detect_gender((item.get("name", "") + " " + item.get("username", "")).strip())
+            if g == "female":
+                duplicate_females.append(item["username"])
+            elif g == "male":
+                duplicate_males.append(item["username"])
+            else:
+                duplicate_unknowns.append(item["username"])
+        queue_jobs[qid]["duplicate_males"] = duplicate_males
+        queue_jobs[qid]["duplicate_females"] = duplicate_females
+        queue_jobs[qid]["duplicate_unknowns"] = duplicate_unknowns
         append_history(queue_jobs[qid]["all_validated"])
         queue_jobs[qid]["status"] = "completed"
 
@@ -591,21 +802,37 @@ async def queue_status(qid: str):
     j = queue_jobs.get(qid)
     if not j:
         raise HTTPException(status_code=404)
+    if j.get("status") == "completed":
+        for target_state in j.get("targets", {}).values():
+            if target_state.get("status") not in ("done", "partial", "error", "error_not_found"):
+                requested = target_state.get("requested_max")
+                scraped = target_state.get("scraped", 0)
+                if requested and scraped < requested:
+                    target_state["status"] = "partial"
+                    target_state["last_error"] = target_state.get("last_error") or (
+                        f"Arret partiel: seulement {scraped}/{requested} profils charges."
+                    )
+                else:
+                    target_state["status"] = "done"
     # Calcule les males/femmes en live (pour voir pendant la queue)
     males = j.get("validated_males")
     females = j.get("validated_females")
-    if males is None or females is None:
+    unknowns = j.get("validated_unknowns")
+    if males is None or females is None or unknowns is None:
         from gender_detector import detect_gender
-        males, females = [], []
+        males, females, unknowns = [], [], []
         seen = set()
         for item in j.get("all_validated_with_name", []):
             u = item["username"].lower()
             if u in seen: continue
             seen.add(u)
-            if detect_gender(item.get("name", "")) == "female":
+            g = detect_gender((item.get("name", "") + " " + item.get("username", "")).strip())
+            if g == "female":
                 females.append(item["username"])
-            else:
+            elif g == "male":
                 males.append(item["username"])
+            else:
+                unknowns.append(item["username"])
     return {
         "status": j["status"],
         "targets": j["targets"],
@@ -616,6 +843,10 @@ async def queue_status(qid: str):
         "all_validated": j["all_validated"],
         "validated_males": males,
         "validated_females": females,
+        "validated_unknowns": unknowns,
+        "duplicate_males": j.get("duplicate_males", []),
+        "duplicate_females": j.get("duplicate_females", []),
+        "duplicate_unknowns": j.get("duplicate_unknowns", []),
         "all_with_name": j.get("all_validated_with_name", []),
     }
 
@@ -765,6 +996,66 @@ async def verify_dm_batch(request: VerifyDMBatchRequest):
 # ========== POOL ROTATION ENDPOINTS ==========
 
 pool_jobs = {}  # job_id -> {status, total, done, results, error}
+cookie_grab_jobs = {}
+objective_jobs = {}
+target_discovery_jobs = {}
+
+
+US_LOCATION_TERMS = {
+    "usa", "u.s.a", "united states", "america", "american",
+    "new york", "nyc", "los angeles", "california", "texas",
+    "florida", "miami", "atlanta", "georgia", "chicago", "illinois",
+    "las vegas", "nevada", "arizona", "phoenix", "seattle", "washington",
+    "boston", "massachusetts", "dallas", "houston", "austin", "nashville",
+    "tennessee", "denver", "colorado", "detroit", "michigan",
+    "philadelphia", "pennsylvania", "ohio", "north carolina",
+    "south carolina", "new jersey", "virginia", "maryland",
+}
+
+CREATOR_TERMS = {
+    "creator", "content creator", "model", "influencer", "streamer",
+    "youtuber", "tiktoker", "artist", "actress", "singer", "dancer",
+    "cosplay", "cosplayer", "fashion", "beauty", "makeup", "fitness",
+    "ugc", "onlyfans", "link in bio", "booking", "collab", "collabs",
+    "officially 18", "only followers", "get replies", "18yo", "18 yo",
+    "bff", "my bff", "college student",
+}
+
+
+def _profile_text(user: dict) -> str:
+    return " ".join(str(user.get(k) or "") for k in ("name", "username", "bio", "location")).lower()
+
+
+def is_us_profile(user: dict) -> bool:
+    text = _profile_text(user)
+    return any(term in text for term in US_LOCATION_TERMS) or looks_english_profile(user)
+
+
+ENGLISH_TERMS = {
+    "the", "and", "for", "with", "from", "only", "officially", "college",
+    "student", "replies", "follow", "followers", "bff", "love", "girl",
+    "girls", "content", "creator", "model", "fitness", "beauty", "makeup",
+    "link", "bio", "dm", "booking", "collab", "snap", "instagram",
+}
+
+
+def looks_english_profile(user: dict) -> bool:
+    text = _profile_text(user)
+    letters = [ch for ch in text if ch.isalpha()]
+    if len(letters) < 8:
+        return False
+    ascii_letters = [ch for ch in letters if ch.isascii()]
+    ascii_ratio = len(ascii_letters) / max(1, len(letters))
+    words = {w.strip(".,!?:;()[]{}|/\\\"'").lower() for w in text.split()}
+    english_hits = len(words & ENGLISH_TERMS)
+    return ascii_ratio >= 0.9 and english_hits >= 1
+
+
+def is_creator_profile(user: dict) -> bool:
+    text = _profile_text(user)
+    if any(term in text for term in CREATOR_TERMS):
+        return True
+    return looks_english_profile(user) and any(ch.isdigit() for ch in text) and ("reply" in text or "follow" in text)
 
 
 @app.get("/accounts", response_class=HTMLResponse)
@@ -785,7 +1076,32 @@ async def pool_remove(user: str):
 
 
 class PoolAddRequest(BaseModel):
-    raw: str  # texte colle : lignes user:pass:email:mdp_email:ct0:auth_token:totp
+    raw: str  # texte colle : lignes shop ou user:auth_token:ct0
+
+
+def hydrate_ct0_from_auth_token(auth_token: str) -> Optional[str]:
+    """Tente de recuperer ct0 en ouvrant x.com avec auth_token."""
+    if not auth_token:
+        return None
+    try:
+        with httpx.Client(
+            timeout=20.0,
+            follow_redirects=True,
+            headers={
+                "user-agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+                "accept-language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            },
+            cookies={"auth_token": auth_token},
+        ) as client:
+            client.get("https://x.com/home")
+            return client.cookies.get("ct0")
+    except Exception as e:
+        print(f"[POOL] ct0 hydration failed: {e}", flush=True)
+        return None
 
 
 @app.post("/api/pool/add")
@@ -801,6 +1117,8 @@ async def pool_add(request: PoolAddRequest):
     added = 0
     dup = 0
     bad = 0
+    hydrated = 0
+    missing_ct0 = 0
     for ln in request.raw.splitlines():
         if not ln.strip() or ln.startswith("#"):
             continue
@@ -808,6 +1126,13 @@ async def pool_add(request: PoolAddRequest):
         if not entry:
             bad += 1
             continue
+        if not entry.get("ct0"):
+            ct0 = hydrate_ct0_from_auth_token(entry.get("auth_token", ""))
+            if ct0:
+                entry["ct0"] = ct0
+                hydrated += 1
+            else:
+                missing_ct0 += 1
         if entry["user"].lower() in existing_users or entry["auth_token"] in existing_tokens:
             dup += 1
             continue
@@ -817,7 +1142,64 @@ async def pool_add(request: PoolAddRequest):
         added += 1
 
     pool_path.write_text(json.dumps(pool, indent=2), encoding="utf-8")
-    return {"added": added, "duplicates": dup, "invalid": bad, "total": len(pool)}
+    return {
+        "added": added,
+        "duplicates": dup,
+        "invalid": bad,
+        "hydrated_ct0": hydrated,
+        "missing_ct0": missing_ct0,
+        "total": len(pool),
+    }
+
+
+@app.post("/api/pool/grab-cookies")
+async def pool_grab_cookies(request: PoolAddRequest):
+    """Lance une recuperation cookies locale depuis les lignes shop collees."""
+    job_id = str(uuid.uuid4())[:8]
+    cookie_grab_jobs[job_id] = {
+        "status": "running",
+        "message": "Preparation",
+        "started_at": datetime.now().isoformat(),
+        "returncode": None,
+        "output": "",
+    }
+
+    async def runner():
+        try:
+            creds_path = Path(f"credentials_{job_id}.txt")
+            creds_path.write_text(request.raw, encoding="utf-8")
+            cookie_grab_jobs[job_id]["message"] = "Recuperation cookies en cours"
+            proc = await asyncio.create_subprocess_exec(
+                "python",
+                "grab_cookies_batch.py",
+                str(creds_path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            out, _ = await proc.communicate()
+            text = out.decode("utf-8", errors="replace")
+            cookie_grab_jobs[job_id]["returncode"] = proc.returncode
+            cookie_grab_jobs[job_id]["output"] = text[-6000:]
+            cookie_grab_jobs[job_id]["status"] = "completed" if proc.returncode == 0 else "error"
+            cookie_grab_jobs[job_id]["message"] = "Termine" if proc.returncode == 0 else "Erreur"
+            try:
+                creds_path.unlink()
+            except Exception:
+                pass
+        except Exception as e:
+            cookie_grab_jobs[job_id]["status"] = "error"
+            cookie_grab_jobs[job_id]["message"] = str(e)
+
+    asyncio.create_task(runner())
+    return {"job_id": job_id}
+
+
+@app.get("/api/pool/grab-cookies/{job_id}")
+async def pool_grab_cookies_status(job_id: str):
+    job = cookie_grab_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    return job
 
 
 @app.get("/api/pool/status")
@@ -931,6 +1313,482 @@ async def pool_job_download(job_id: str):
         io.BytesIO(content.encode("utf-8")),
         media_type="text/plain",
         headers={"Content-Disposition": f"attachment; filename=can_dm_validated_{job_id}.txt"}
+    )
+
+
+class ObjectiveMenRequest(BaseModel):
+    targets: list
+    objective_men: int = 100
+    max_profiles: int = 500
+    per_account_limit: int = 200
+
+
+class TargetDiscoveryRequest(BaseModel):
+    seeds: list
+    max_targets: int = 20
+    scan_limit: int = 300
+    max_followers: int = 50000
+    min_followers: int = 0
+    list_type: str = "following"
+    depth: int = 2
+    per_profile_limit: int = 20
+    max_explore: int = 500
+
+
+@app.post("/api/target-discovery/start")
+async def target_discovery_start(request: TargetDiscoveryRequest):
+    seeds = [
+        s.strip().lstrip("@").replace("https://x.com/", "").replace("https://twitter.com/", "")
+        for s in request.seeds
+        if s.strip()
+    ]
+    if not seeds:
+        raise HTTPException(status_code=400, detail="Ajoute au moins 1 compte seed")
+    if request.max_targets < 1 or request.scan_limit < 10:
+        raise HTTPException(status_code=400, detail="Parametres invalides")
+    depth = max(1, min(10, int(request.depth or 1)))
+    per_profile_limit = max(1, min(200, int(request.per_profile_limit or 20)))
+    max_explore = max(10, min(20000, int(request.max_explore or request.scan_limit)))
+
+    try:
+        pool = CookiePool()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Pool invalide: {e}")
+
+    job_id = str(uuid.uuid4())[:8]
+    target_discovery_jobs[job_id] = {
+        "status": "running",
+        "seeds": seeds,
+        "max_targets": request.max_targets,
+        "scan_limit": request.scan_limit,
+        "depth": depth,
+        "per_profile_limit": per_profile_limit,
+        "max_explore": max_explore,
+        "max_followers": request.max_followers,
+        "min_followers": request.min_followers,
+        "list_type": request.list_type,
+        "seen": 0,
+        "kept": [],
+        "sampled": [],
+        "rejected": {"not_us": 0, "no_us_signal": 0, "not_female": 0, "not_creator": 0, "followers": 0, "duplicate": 0, "already_discovered": 0, "blacklisted": 0, "protected": 0, "errors": 0, "empty_lists": 0},
+        "list_counts": {"following": 0, "following_playwright": 0, "followers": 0},
+        "level_counts": {},
+        "current_seed": None,
+        "current_account": None,
+        "logs": [],
+        "started_at": datetime.now().isoformat(),
+    }
+
+    def dlog(msg: str):
+        target_discovery_jobs[job_id]["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} {msg}")
+        target_discovery_jobs[job_id]["logs"] = target_discovery_jobs[job_id]["logs"][-80:]
+        print(f"[DISC {job_id}] {msg}", flush=True)
+
+    async def runner():
+        from gender_detector import detect_gender_confident
+        candidate_seen = set()
+        parent_seen = {s.lower() for s in seeds}
+        known_discovered = load_target_usernames(DISCOVERED_TARGETS_FILE)
+        known_blacklist = load_target_usernames(TARGET_BLACKLIST_FILE)
+
+        def sample(uname, user, source_list, status, reason):
+            if uname and len(target_discovery_jobs[job_id]["sampled"]) < 80:
+                target_discovery_jobs[job_id]["sampled"].append({
+                    "username": uname,
+                    "name": user.get("name") or "",
+                    "source_list": source_list,
+                    "status": status,
+                    "reason": reason,
+                })
+
+        def keep_or_reject(user, parent, source_list):
+            uname = (user.get("username") or "").strip()
+            key = uname.lower()
+            if not key or key in candidate_seen:
+                target_discovery_jobs[job_id]["rejected"]["duplicate"] += 1
+                sample(uname, user, source_list, "rejected", "doublon")
+                return
+            candidate_seen.add(key)
+
+            if key in known_blacklist:
+                target_discovery_jobs[job_id]["rejected"]["blacklisted"] += 1
+                sample(uname, user, source_list, "rejected", "blacklist")
+                return
+
+            if key in known_discovered:
+                target_discovery_jobs[job_id]["rejected"]["already_discovered"] += 1
+                sample(uname, user, source_list, "rejected", "deja decouvert")
+                return
+
+            if user.get("protected"):
+                target_discovery_jobs[job_id]["rejected"]["protected"] += 1
+                sample(uname, user, source_list, "rejected", "protege")
+                return
+
+            followers = int(user.get("followers_count") or user.get("followers") or 0)
+            if followers < request.min_followers or followers > request.max_followers:
+                target_discovery_jobs[job_id]["rejected"]["followers"] += 1
+                sample(uname, user, source_list, "rejected", "followers")
+                return
+
+            if not is_us_profile(user):
+                if not str(user.get("location") or "").strip():
+                    target_discovery_jobs[job_id]["rejected"]["no_us_signal"] += 1
+                    reason = "aucun signal anglais"
+                else:
+                    target_discovery_jobs[job_id]["rejected"]["not_us"] += 1
+                    reason = "hors US"
+                sample(uname, user, source_list, "rejected", reason)
+                return
+
+            gender, gender_score, reasons = detect_gender_confident(
+                name=user.get("name") or "",
+                username=uname,
+                bio=user.get("bio") or "",
+            )
+            if gender != "female":
+                target_discovery_jobs[job_id]["rejected"]["not_female"] += 1
+                sample(uname, user, source_list, "rejected", "pas femme")
+                return
+
+            if not is_creator_profile(user):
+                target_discovery_jobs[job_id]["rejected"]["not_creator"] += 1
+                sample(uname, user, source_list, "rejected", "pas creatrice")
+                return
+
+            target_discovery_jobs[job_id]["kept"].append({
+                "username": uname,
+                "name": user.get("name") or "",
+                "followers": followers,
+                "location": user.get("location") or "",
+                "bio": (user.get("bio") or "")[:160],
+                "source": parent,
+                "source_list": source_list,
+                "gender_score": gender_score,
+                "reasons": reasons[:4],
+            })
+            sample(uname, user, source_list, "kept", "gardee")
+
+        async def fetch_following(parent, level):
+            account = pool.get_next()
+            if not account:
+                target_discovery_jobs[job_id]["status"] = "paused"
+                dlog("Plus aucun compte disponible dans le pool.")
+                return []
+
+            pool_user = account.get("user", account.get("auth_token", "")[:8])
+            target_discovery_jobs[job_id]["current_account"] = pool_user
+            target_discovery_jobs[job_id]["current_seed"] = parent
+            cookies_dict = pool.to_dict(account)
+            if not cookies_dict.get("ct0"):
+                target_discovery_jobs[job_id]["rejected"]["errors"] += 1
+                dlog(f"@{pool_user}: ct0 manquant.")
+                return []
+
+            users = []
+            scraper = TwitterScraper(cookies=cookies_dict, proxy=pool.get_proxy(account), min_wait=0.05, max_wait=0.15)
+            try:
+                info = scraper.get_user_info(parent)
+                if not info or not info.get("id"):
+                    target_discovery_jobs[job_id]["rejected"]["errors"] += 1
+                    dlog(f"@{parent}: introuvable.")
+                    return []
+
+                dlog(f"Niveau {level}: @{parent} -> abonnements API.")
+                for u in scraper.scrape_list_v1(
+                    str(info["id"]),
+                    list_type="following",
+                    max_records=per_profile_limit,
+                    check_dm=False,
+                ):
+                    users.append(u)
+                    if len(users) >= per_profile_limit:
+                        break
+
+                if users:
+                    target_discovery_jobs[job_id]["list_counts"]["following"] += len(users)
+                else:
+                    dlog(f"@{parent}: API following vide, fallback visuel Playwright.")
+                    pw = None
+                    try:
+                        pw_cookies = [{"name": k, "value": v} for k, v in cookies_dict.items() if v]
+                        pw = TwitterPlaywrightScraper(cookies=pw_cookies, headless=True, proxy=pool.get_proxy(account))
+                        await pw.start()
+                        users = await pw.scrape_visible_profiles_dom(parent, list_type="following", max_records=per_profile_limit)
+                        target_discovery_jobs[job_id]["list_counts"]["following_playwright"] += len(users)
+                    finally:
+                        if pw:
+                            await pw.close()
+
+                pool.report_success(account)
+                return users
+            except httpx.HTTPStatusError as e:
+                pool.report_error(account, e.response.status_code)
+                target_discovery_jobs[job_id]["rejected"]["errors"] += 1
+                dlog(f"@{parent}: HTTP {e.response.status_code}.")
+                return []
+            except Exception as e:
+                pool.report_error(account, 500)
+                target_discovery_jobs[job_id]["rejected"]["errors"] += 1
+                dlog(f"@{parent}: erreur {e}")
+                return []
+            finally:
+                scraper.close()
+
+        try:
+            frontier = list(dict.fromkeys(seeds))
+            for level in range(1, depth + 1):
+                if not frontier or len(target_discovery_jobs[job_id]["kept"]) >= request.max_targets:
+                    break
+                if target_discovery_jobs[job_id]["seen"] >= max_explore:
+                    dlog("Limite globale de profils explores atteinte.")
+                    break
+
+                next_frontier = []
+                dlog(f"Debut niveau {level}: {len(frontier)} profil(s) a explorer.")
+                for parent in frontier:
+                    if len(target_discovery_jobs[job_id]["kept"]) >= request.max_targets:
+                        break
+                    if target_discovery_jobs[job_id]["seen"] >= max_explore:
+                        break
+
+                    users = await fetch_following(parent, level)
+                    if not users:
+                        target_discovery_jobs[job_id]["rejected"]["empty_lists"] += 1
+                        continue
+
+                    target_discovery_jobs[job_id]["level_counts"].setdefault(str(level), 0)
+                    for u in users:
+                        if len(target_discovery_jobs[job_id]["kept"]) >= request.max_targets:
+                            break
+                        if target_discovery_jobs[job_id]["seen"] >= max_explore:
+                            break
+
+                        target_discovery_jobs[job_id]["seen"] += 1
+                        target_discovery_jobs[job_id]["level_counts"][str(level)] += 1
+                        uname = (u.get("username") or "").strip()
+                        key = uname.lower()
+                        if key and key not in parent_seen:
+                            parent_seen.add(key)
+                            next_frontier.append(uname)
+                        keep_or_reject(u, parent, f"following_n{level}")
+
+                    dlog(
+                        f"Niveau {level}: @{parent} -> {len(users)} abonnements, "
+                        f"{len(target_discovery_jobs[job_id]['kept'])}/{request.max_targets} cibles."
+                    )
+
+                frontier = next_frontier[:max_explore]
+
+            append_discovered_targets(target_discovery_jobs[job_id]["kept"])
+            target_discovery_jobs[job_id]["status"] = "completed" if target_discovery_jobs[job_id]["kept"] else "partial"
+            dlog("Recherche terminee.")
+        except Exception as e:
+            target_discovery_jobs[job_id]["status"] = "error"
+            target_discovery_jobs[job_id]["error"] = str(e)
+            dlog(f"Erreur fatale: {e}")
+
+    import threading
+    threading.Thread(target=lambda: asyncio.run(runner()), daemon=True).start()
+    return {"job_id": job_id}
+
+
+@app.get("/api/target-discovery/{job_id}")
+async def target_discovery_status(job_id: str):
+    job = target_discovery_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    return job
+
+
+@app.post("/api/objective-men/start")
+async def objective_men_start(request: ObjectiveMenRequest):
+    targets = [
+        t.strip().lstrip("@").replace("https://x.com/", "").replace("https://twitter.com/", "")
+        for t in request.targets
+        if t.strip()
+    ]
+    if not targets:
+        raise HTTPException(status_code=400, detail="Aucune cible")
+    if request.objective_men < 1 or request.max_profiles < 1:
+        raise HTTPException(status_code=400, detail="Objectif/limite invalides")
+
+    try:
+        pool = CookiePool()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Pool invalide: {e}")
+
+    job_id = str(uuid.uuid4())[:8]
+    objective_jobs[job_id] = {
+        "status": "running",
+        "targets": targets,
+        "objective_men": request.objective_men,
+        "max_profiles": request.max_profiles,
+        "per_account_limit": request.per_account_limit,
+        "profiles_seen": 0,
+        "verified": 0,
+        "men": [],
+        "women": 0,
+        "unknown": 0,
+        "closed": 0,
+        "duplicates": 0,
+        "blocked": 0,
+        "current_account": None,
+        "current_target": None,
+        "logs": [],
+        "started_at": datetime.now().isoformat(),
+    }
+
+    def jlog(msg: str):
+        objective_jobs[job_id]["logs"].append(f"{datetime.now().strftime('%H:%M:%S')} {msg}")
+        objective_jobs[job_id]["logs"] = objective_jobs[job_id]["logs"][-80:]
+        print(f"[OBJ {job_id}] {msg}", flush=True)
+
+    async def runner():
+        from gender_detector import detect_gender_confident
+        history = load_history()
+        seen = set()
+        try:
+            target_cursors = {t: None for t in targets}
+            for target in targets:
+                if len(objective_jobs[job_id]["men"]) >= request.objective_men:
+                    break
+                objective_jobs[job_id]["current_target"] = target
+                # Chaque passage prend le prochain compte disponible. On garde le
+                # quota par compte bas pour eviter de forcer une session.
+                while (
+                    len(objective_jobs[job_id]["men"]) < request.objective_men
+                    and objective_jobs[job_id]["profiles_seen"] < request.max_profiles
+                ):
+                    account = pool.get_next()
+                    if not account:
+                        objective_jobs[job_id]["status"] = "paused"
+                        jlog("Plus aucun compte disponible dans le pool.")
+                        return
+                    user = account.get("user", account.get("auth_token", "")[:8])
+                    objective_jobs[job_id]["current_account"] = user
+                    cookies_dict = pool.to_dict(account)
+                    if not cookies_dict.get("ct0"):
+                        objective_jobs[job_id]["blocked"] += 1
+                        jlog(f"@{user} ignore: ct0 manquant.")
+                        continue
+
+                    scraper = TwitterScraper(cookies=cookies_dict, proxy=pool.get_proxy(account), min_wait=0.05, max_wait=0.15)
+                    used_by_account = 0
+                    try:
+                        info = scraper.get_user_info(target)
+                        if not info or not info.get("id"):
+                            jlog(f"@{target}: cible introuvable avec @{user}.")
+                            break
+
+                        for u in scraper.scrape_list_v1(
+                            str(info["id"]),
+                            list_type="followers",
+                            max_records=request.per_account_limit,
+                            start_cursor=target_cursors.get(target),
+                            check_dm=False,
+                        ):
+                            if len(objective_jobs[job_id]["men"]) >= request.objective_men:
+                                break
+                            if objective_jobs[job_id]["profiles_seen"] >= request.max_profiles:
+                                break
+                            objective_jobs[job_id]["profiles_seen"] += 1
+                            used_by_account += 1
+
+                            uname = (u.get("username") or "").strip()
+                            uid = str(u.get("id") or "").strip()
+                            key = (uname or uid).lower()
+                            if not key or key in seen:
+                                continue
+                            seen.add(key)
+                            if key in history:
+                                objective_jobs[job_id]["duplicates"] += 1
+                                continue
+
+                            can_dm = scraper.check_can_dm_verified(uid)
+                            objective_jobs[job_id]["verified"] += 1
+                            if can_dm is None:
+                                objective_jobs[job_id]["blocked"] += 1
+                                pool.report_error(account, 429)
+                                jlog(f"@{user}: verification bloquee, cooldown.")
+                                break
+                            if not can_dm:
+                                objective_jobs[job_id]["closed"] += 1
+                                continue
+
+                            gender, gender_score, _ = detect_gender_confident(
+                                name=u.get("name") or "",
+                                username=uname,
+                                bio=u.get("bio") or "",
+                            )
+                            if gender == "male":
+                                objective_jobs[job_id]["men"].append(uname)
+                                history.add(key)
+                                objective_jobs[job_id]["total_men"] = len(objective_jobs[job_id]["men"])
+                            elif gender == "female":
+                                objective_jobs[job_id]["women"] += 1
+                            else:
+                                objective_jobs[job_id]["unknown"] += 1
+
+                        pool.report_success(account)
+                        target_cursors[target] = scraper.last_cursor
+                        jlog(
+                            f"@{user} sur @{target}: {used_by_account} profils, "
+                            f"{len(objective_jobs[job_id]['men'])}/{request.objective_men} hommes."
+                        )
+                    except httpx.HTTPStatusError as e:
+                        pool.report_error(account, e.response.status_code)
+                        objective_jobs[job_id]["blocked"] += 1
+                        jlog(f"@{user}: HTTP {e.response.status_code}, cooldown.")
+                    except Exception as e:
+                        objective_jobs[job_id]["blocked"] += 1
+                        jlog(f"@{user}: erreur {e}")
+                    finally:
+                        scraper.close()
+
+                    if used_by_account == 0:
+                        break
+                    if target_cursors.get(target) == "0":
+                        jlog(f"@{target}: fin de liste atteinte.")
+                        break
+
+            append_history(objective_jobs[job_id]["men"])
+            if len(objective_jobs[job_id]["men"]) >= request.objective_men:
+                objective_jobs[job_id]["status"] = "completed"
+                jlog("Objectif atteint.")
+            else:
+                objective_jobs[job_id]["status"] = "partial"
+                jlog("Limite securite atteinte avant l'objectif.")
+        except Exception as e:
+            objective_jobs[job_id]["status"] = "error"
+            objective_jobs[job_id]["error"] = str(e)
+            jlog(f"Erreur fatale: {e}")
+
+    import threading
+    def run_in_thread():
+        asyncio.run(runner())
+    threading.Thread(target=run_in_thread, daemon=True).start()
+    return {"job_id": job_id}
+
+
+@app.get("/api/objective-men/{job_id}")
+async def objective_men_status(job_id: str):
+    job = objective_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    return job
+
+
+@app.get("/api/objective-men/{job_id}/download")
+async def objective_men_download(job_id: str):
+    job = objective_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404)
+    content = "\n".join(job.get("men", []))
+    return StreamingResponse(
+        io.BytesIO(content.encode("utf-8")),
+        media_type="text/plain",
+        headers={"Content-Disposition": f"attachment; filename=objectif_hommes_{job_id}.txt"}
     )
 
 

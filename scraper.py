@@ -380,6 +380,31 @@ class TwitterScraper:
 
         return False
 
+    def check_can_dm_verified(self, target_user_id: str) -> Optional[bool]:
+        """
+        Verifie can_dm via friendships/show.
+        Retourne True/False si X repond, None si la verification est bloquee.
+        None ne doit pas etre compte comme DM ferme.
+        """
+        url = f"{TWITTER_API_V1}/friendships/show.json"
+        params = {"target_id": target_user_id}
+
+        try:
+            response = self.client.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                relationship = data.get("relationship", {})
+                source = relationship.get("source", {})
+                return source.get("can_dm", False) is True
+            if response.status_code in (401, 403, 429):
+                print(f"[DEBUG] check_can_dm_verified blocked: {response.status_code}")
+                return None
+            print(f"[DEBUG] check_can_dm_verified status: {response.status_code}")
+        except Exception as e:
+            print(f"[DEBUG] check_can_dm_verified error: {e}")
+
+        return None
+
     def check_can_dm_bulk(self, user_ids: list) -> dict:
         """
         Vérifie can_dm pour plusieurs utilisateurs via friendships/show.

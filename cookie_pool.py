@@ -73,6 +73,8 @@ class CookiePool:
         return self.state[user]
 
     def _is_available(self, cookie: dict) -> bool:
+        if not cookie.get("auth_token") or not cookie.get("ct0"):
+            return False
         user = cookie.get("user", cookie.get("auth_token", "")[:8])
         st = self._entry_state(user)
         if st["requests_today"] >= MAX_REQUESTS_PER_DAY:
@@ -110,7 +112,9 @@ class CookiePool:
 
     def to_dict(self, cookie: dict) -> dict:
         """Convertit l'entree pool en dict compatible scraper (auth_token, ct0)."""
-        result = {"auth_token": cookie["auth_token"], "ct0": cookie["ct0"]}
+        result = {"auth_token": cookie["auth_token"]}
+        if cookie.get("ct0"):
+            result["ct0"] = cookie["ct0"]
         # parser cookie complet si fourni (format "k=v; k=v;")
         raw = cookie.get("cookie")
         if raw:

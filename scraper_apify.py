@@ -42,6 +42,59 @@ class ApifyStyleScraper:
         self.captured_features = None
         self.captured_variables_template = None
         self._debug_dm_samples = 0
+        self.last_stop_reason = None
+
+    def _extract_timeline_users_and_cursor(self, data: dict) -> tuple[list, Optional[str]]:
+        """Extract TimelineUser results and bottom cursor from current X GraphQL shapes."""
+        users = []
+        cursor = None
+
+        def walk(node):
+            nonlocal cursor
+            if isinstance(node, dict):
+                entry_id = str(node.get("entryId") or node.get("entry_id") or "")
+                if "cursor-bottom" in entry_id.lower():
+                    value = node.get("content", {}).get("value") if isinstance(node.get("content"), dict) else None
+                    if value:
+                        cursor = value
+
+                content = node.get("content")
+                if isinstance(content, dict):
+                    value = content.get("value")
+                    cursor_type = content.get("cursorType")
+                    if value and str(cursor_type).lower() == "bottom":
+                        cursor = value
+
+                item_content = node.get("itemContent")
+                if isinstance(item_content, dict) and item_content.get("itemType") == "TimelineUser":
+                    result = item_content.get("user_results", {}).get("result", {})
+                    if result:
+                        users.append(result)
+
+                if "user_results" in node and isinstance(node.get("user_results"), dict):
+                    result = node.get("user_results", {}).get("result", {})
+                    if isinstance(result, dict) and (result.get("rest_id") or result.get("legacy") or result.get("core")):
+                        users.append(result)
+
+                for value in node.values():
+                    if isinstance(value, (dict, list)):
+                        walk(value)
+            elif isinstance(node, list):
+                for item in node:
+                    walk(item)
+
+        walk(data)
+
+        deduped = []
+        seen = set()
+        for user in users:
+            uid = user.get("rest_id") or user.get("id")
+            if not uid or uid in seen:
+                continue
+            seen.add(uid)
+            deduped.append(user)
+
+        return deduped, cursor
 
     async def start(self):
         """Démarre le navigateur et récupère les tokens."""
@@ -86,6 +139,16 @@ class ApifyStyleScraper:
         print("[APIFY] Navigateur prêt!")
         print(f"[APIFY] CSRF Token: {self.csrf_token[:20]}...")
 
+    async def _dismiss_cookie_banner(self):
+        try:
+            button = self.page.get_by_role("button", name="Accept all cookies")
+            if await button.count():
+                await button.first.click(timeout=3000)
+                await asyncio.sleep(1)
+                print("[APIFY] Cookie banner acceptee")
+        except Exception:
+            pass
+
     async def scrape_followers(
         self,
         username: str,
@@ -103,6 +166,7 @@ class ApifyStyleScraper:
         3. Faire nos propres requêtes avec les MÊMES headers/features + cursor
         """
         print(f"[APIFY] Scraping {list_type} de @{username}...")
+        self.last_stop_reason = None
 
         # Variables pour capturer la requête et réponse
         captured = {
@@ -151,6 +215,12 @@ class ApifyStyleScraper:
                         "x-twitter-client-language": all_headers.get("x-twitter-client-language"),
                         # Note: x-client-transaction-id change à chaque requête, on ne le réutilise pas
                     }
+                    blocked_headers = {"host", "content-length", "x-client-transaction-id"}
+                    captured["headers"] = {
+                        k: v
+                        for k, v in all_headers.items()
+                        if v and k.lower() not in blocked_headers
+                    }
                     print(f"[APIFY] Referer: {captured['headers'].get('referer')}")
 
                     # Extraire TOUS les paramètres de l'URL
@@ -192,29 +262,18 @@ class ApifyStyleScraper:
                     # Vérifier les erreurs
                     if "errors" in data:
                         print(f"[APIFY] Erreur GraphQL: {data['errors']}")
+                        self.last_stop_reason = f"graphql_errors:{data['errors']}"
                         return
 
-                    result = data.get("data", {}).get("user", {}).get("result", {})
-                    timeline = result.get("timeline", {}).get("timeline", {})
-
-                    for instruction in timeline.get("instructions", []):
-                        if instruction.get("type") != "TimelineAddEntries":
-                            continue
-
-                        for entry in instruction.get("entries", []):
-                            entry_id = entry.get("entryId", "")
-
-                            # Capturer le curseur
-                            if "cursor-bottom" in entry_id:
-                                captured["cursor"] = entry.get("content", {}).get("value")
-
-                            # Capturer les utilisateurs
-                            content = entry.get("content", {})
-                            item_content = content.get("itemContent", {})
-                            if item_content.get("itemType") == "TimelineUser":
-                                user_result = item_content.get("user_results", {}).get("result", {})
-                                if user_result:
-                                    captured["first_users"].append(user_result)
+                    users, cursor = self._extract_timeline_users_and_cursor(data)
+                    if cursor:
+                        captured["cursor"] = cursor
+                    if users:
+                        known = {u.get("rest_id") or u.get("id") for u in captured["first_users"]}
+                        captured["first_users"].extend([
+                            u for u in users
+                            if (u.get("rest_id") or u.get("id")) not in known
+                        ])
 
                     print(f"[APIFY] Réponse: {len(captured['first_users'])} users, cursor: {'Oui' if captured['cursor'] else 'Non'}")
 
@@ -228,6 +287,7 @@ class ApifyStyleScraper:
         # Visiter la page pour déclencher la requête GraphQL
         print(f"[APIFY] Navigation vers https://x.com/{username}/{list_type}...")
         await self.page.goto(f"https://x.com/{username}/{list_type}", wait_until="domcontentloaded", timeout=30000)
+        await self._dismiss_cookie_banner()
 
         # Attendre un peu que les requêtes soient capturées
         await asyncio.sleep(5)
@@ -241,10 +301,12 @@ class ApifyStyleScraper:
             print("[APIFY] Échec de la capture de la requête originale")
             print(f"[APIFY] Query ID: {captured['query_id']}")
             print(f"[APIFY] Headers: {captured['headers']}")
+            self.last_stop_reason = "capture_failed"
             return
 
         if not captured["first_users"]:
             print("[APIFY] Aucun utilisateur dans la première réponse")
+            self.last_stop_reason = "first_page_empty"
             return
 
         total_scraped = 0
@@ -263,12 +325,14 @@ class ApifyStyleScraper:
 
                 if max_records and total_scraped >= max_records:
                     print(f"[APIFY] Limite atteinte: {max_records}")
+                    self.last_stop_reason = "max_records_reached"
                     return
 
         print(f"[APIFY] Page 1: {total_scraped} users scrapés")
 
         if not captured["cursor"]:
             print(f"[APIFY] Pas de curseur, fin: {total_scraped} utilisateurs")
+            self.last_stop_reason = f"no_cursor_after_first_page:{total_scraped}"
             return
 
         # ============================================
@@ -374,6 +438,7 @@ class ApifyStyleScraper:
             # Gérer les erreurs
             if not result:
                 print("[APIFY] Pas de réponse")
+                self.last_stop_reason = f"empty_response_page:{page_num}"
                 break
 
             if result.get("error") == "rate_limit":
@@ -388,42 +453,35 @@ class ApifyStyleScraper:
                 print(f"[APIFY] Erreur: {result.get('error')} - {result.get('status')} {result.get('statusText', '')}")
                 if result.get("body"):
                     print(f"[APIFY] Body erreur: {result.get('body')[:200]}")
+                body_hint = (result.get("body") or "").replace("\n", " ")[:120]
+                self.last_stop_reason = (
+                    f"error_page:{page_num}:{result.get('error')}:{result.get('status')}"
+                    + (f":{body_hint}" if body_hint else "")
+                )
                 break
 
             # Extraire les utilisateurs et le curseur suivant
-            users_in_page = []
-            next_cursor = None
-
             try:
-                data_result = result.get("data", {}).get("user", {}).get("result", {})
-                timeline = data_result.get("timeline", {}).get("timeline", {})
-
-                for instruction in timeline.get("instructions", []):
-                    if instruction.get("type") != "TimelineAddEntries":
-                        continue
-
-                    for entry in instruction.get("entries", []):
-                        entry_id = entry.get("entryId", "")
-
-                        if "cursor-bottom" in entry_id:
-                            next_cursor = entry.get("content", {}).get("value")
-                            continue
-
-                        content = entry.get("content", {})
-                        item_content = content.get("itemContent", {})
-
-                        if item_content.get("itemType") == "TimelineUser":
-                            user_result = item_content.get("user_results", {}).get("result", {})
-                            if user_result and user_result.get("rest_id") not in seen_ids:
-                                users_in_page.append(user_result)
-                                seen_ids.add(user_result.get("rest_id"))
-
+                extracted_users, next_cursor = self._extract_timeline_users_and_cursor(result)
+                users_in_page = []
+                for user_result in extracted_users:
+                    uid = user_result.get("rest_id") or user_result.get("id")
+                    if uid and uid not in seen_ids:
+                        users_in_page.append(user_result)
+                        seen_ids.add(uid)
+                print(
+                    f"[APIFY] Page {page_num}: parsed users={len(extracted_users)}, "
+                    f"new={len(users_in_page)}, cursor={'Oui' if next_cursor else 'Non'}",
+                    flush=True,
+                )
             except Exception as e:
                 print(f"[APIFY] Erreur parsing: {e}")
+                self.last_stop_reason = f"parse_error_page:{page_num}:{e}"
                 break
 
             if not users_in_page:
                 print("[APIFY] Plus d'utilisateurs")
+                self.last_stop_reason = f"no_new_users_page:{page_num}:parsed={len(extracted_users) if 'extracted_users' in locals() else 'unknown'}:cursor={'yes' if next_cursor else 'no'}"
                 break
 
             # Yield les utilisateurs
@@ -438,6 +496,7 @@ class ApifyStyleScraper:
 
                     if max_records and total_scraped >= max_records:
                         print(f"[APIFY] Limite atteinte: {max_records}")
+                        self.last_stop_reason = "max_records_reached"
                         return
 
             print(f"[APIFY] Page {page_num}: +{len(users_in_page)} users (total: {total_scraped})")
@@ -445,6 +504,7 @@ class ApifyStyleScraper:
             # Préparer la page suivante
             if not next_cursor or next_cursor == cursor:
                 print("[APIFY] Fin de la pagination")
+                self.last_stop_reason = f"pagination_end_page:{page_num}:cursor_repeat={next_cursor == cursor}"
                 break
 
             cursor = next_cursor
@@ -455,6 +515,8 @@ class ApifyStyleScraper:
             await asyncio.sleep(delay)
 
         print(f"[APIFY] Scraping terminé: {total_scraped} utilisateurs")
+        if not self.last_stop_reason:
+            self.last_stop_reason = f"completed:{total_scraped}"
 
     def _format_user(self, user_result: dict) -> Optional[dict]:
         """Formate un user_result en données utilisateur."""

@@ -26,6 +26,7 @@ textarea { min-height: 120px; font-family: monospace; }
 .s-scraping { color: #60a5fa; }
 .s-validating { color: #fbbf24; }
 .s-done { color: #34d399; }
+.s-partial { color: #fbbf24; }
 .s-error, .s-error_not_found { color: #f87171; }
 .stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px; }
 .stat { text-align: center; background: rgba(0,0,0,0.2); border-radius: 10px; padding: 16px; }
@@ -44,6 +45,10 @@ textarea { min-height: 120px; font-family: monospace; }
 .tab-btn.active { background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: #fff; border-color: transparent; }
 .view { display: none; }
 .view.active { display: block; }
+.mode-switch { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:18px; }
+.mode-btn { background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.1); color:#cbd5e1; border-radius:10px; padding:13px 14px; cursor:pointer; font-weight:800; }
+.mode-btn.active { background:linear-gradient(135deg,#10b981,#2563eb); color:white; border-color:transparent; }
+.hidden-simple { display:none !important; }
 </style>
 </head>
 <body>
@@ -54,6 +59,9 @@ textarea { min-height: 120px; font-family: monospace; }
   </div>
 
   <div id="viewQueue">
+  <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.22);border-radius:10px;padding:12px 16px;margin-bottom:16px;color:#cbd5e1;font-size:13px;line-height:1.45">
+    <strong style="color:#fff">Mode conseille :</strong> Production hommes. Mets les cibles, choisis combien d'hommes tu veux, puis lance. Le site ignore les femmes, inconnus, deja vus et DM fermes.
+  </div>
   <h1 style="margin-top:0">🚀 Queue Multi-Cibles</h1>
   <p class="sub">Scrape + valide plusieurs comptes cibles en parallèle, en une seule fois.</p>
 
@@ -64,13 +72,18 @@ textarea { min-height: 120px; font-family: monospace; }
 
   <div class="card" id="setupCard">
     <h3>Configuration</h3>
+    <div class="mode-switch">
+      <button type="button" id="modeProdBtn" class="mode-btn active" onclick="setMainMode('prod')">Production hommes</button>
+      <button type="button" id="modeTestBtn" class="mode-btn" onclick="setMainMode('test')">Test simple</button>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
       <div>
-        <label class="label">🎯 Objectif validés</label>
+        <label class="label">🎯 Objectif DM à obtenir</label>
         <input type="number" id="goal" value="5000" min="100" step="500" oninput="updateGoal()">
+        <div style="font-size:11px;color:#6b7280;margin-top:5px">Estimation seulement. Ne limite pas le scrape.</div>
       </div>
       <div>
-        <label class="label">📊 Tes cibles</label>
+        <label class="label">📊 Estimation</label>
         <div id="goalStatus" style="padding:13px 14px;border-radius:10px;background:rgba(0,0,0,0.3);border:1px solid rgba(255,255,255,0.1);font-size:13px;color:#9ca3af">Ajoute des cibles ↓</div>
       </div>
     </div>
@@ -79,36 +92,160 @@ textarea { min-height: 120px; font-family: monospace; }
       <div id="goalBar" style="height:100%;background:linear-gradient(90deg,#3b82f6,#8b5cf6);width:0%;transition:width 0.4s ease"></div>
     </div>
 
-    <label class="label">Cibles (1 @ par ligne)</label>
+    <label class="label">Comptes cibles a scanner</label>
     <textarea id="targets" placeholder="SharonSurX&#10;autrecompte&#10;encore_un_autre" oninput="debouncedAnalyze()"></textarea>
     <div id="targetsBreakdown" style="margin-top:10px"></div>
 
+    <div style="margin-top:14px;padding:12px;border:1px solid rgba(96,165,250,0.22);background:rgba(96,165,250,0.07);border-radius:10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <div>
+          <div style="font-weight:800;color:#fff">Trouver des cibles femmes US</div>
+          <div style="font-size:12px;color:#94a3b8;margin-top:3px">Scanne les abonnements de comptes seed, garde les creatrices US avec 50K followers max.</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="btn" onclick="showDiscoverySummary()" style="padding:10px 14px;background:rgba(255,255,255,0.1)">Resume recherche</button>
+          <button type="button" class="btn" onclick="analyzeDiscoveryGroq()" style="padding:10px 14px;background:rgba(249,115,22,0.22)">Analyser avec Groq</button>
+          <button type="button" class="btn" onclick="startTargetDiscovery()" style="padding:10px 14px;background:linear-gradient(135deg,#0ea5e9,#2563eb)">Trouver des cibles</button>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button type="button" onclick="applyDiscoveryPreset('safe')" style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.35);color:#86efac;padding:8px 10px;border-radius:8px;cursor:pointer;font-weight:700">Safe</button>
+        <button type="button" onclick="applyDiscoveryPreset('normal')" style="background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.35);color:#93c5fd;padding:8px 10px;border-radius:8px;cursor:pointer;font-weight:700">Normal</button>
+        <button type="button" onclick="applyDiscoveryPreset('large')" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:#fde68a;padding:8px 10px;border-radius:8px;cursor:pointer;font-weight:700">Large</button>
+        <label style="display:flex;align-items:center;gap:6px;color:#cbd5e1;font-size:13px;margin-left:auto">
+          <input type="checkbox" id="autoGroqDiscovery" style="width:auto">
+          Groq auto
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;color:#cbd5e1;font-size:13px">
+          <input type="checkbox" id="strictDiscoveryQuality" style="width:auto">
+          Qualite stricte
+        </label>
+      </div>
+      <div id="discoveryProgress" style="display:none;margin:10px 0;padding:10px 12px;border-radius:8px;background:rgba(15,23,42,0.65);border:1px solid rgba(96,165,250,0.18)">
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:12px;color:#cbd5e1;margin-bottom:8px">
+          <span id="discoveryProgressText">Recherche en cours...</span>
+          <strong id="discoveryProgressPct" style="color:#60a5fa">0%</strong>
+        </div>
+        <div style="height:8px;border-radius:999px;background:rgba(255,255,255,0.08);overflow:hidden">
+          <div id="discoveryProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,#0ea5e9,#10b981);transition:width .35s ease"></div>
+        </div>
+      </div>
+      <label class="label">Seeds pour trouver des cibles</label>
+      <textarea id="discoverySeeds" placeholder="CompteCreateurUS1&#10;CompteCreateurUS2" style="min-height:62px"></textarea>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label class="label">Cibles a trouver</label>
+          <input type="number" id="discoveryMaxTargets" value="20" min="1" max="200" step="1">
+        </div>
+        <div>
+          <label class="label">Followers max</label>
+          <input type="number" id="discoveryMaxFollowers" value="50000" min="1000" step="1000">
+        </div>
+        <div>
+          <label class="label">Profils a analyser</label>
+          <input type="number" id="discoveryScanLimit" value="300" min="50" max="3000" step="50">
+        </div>
+      </div>
+      <div class="row" style="margin-top:0">
+        <div>
+          <label class="label">Profondeur</label>
+          <input type="number" id="discoveryDepth" value="2" min="1" max="10" step="1">
+          <div style="font-size:11px;color:#6b7280;margin-top:5px">1 = seeds, 2 = abonnements des abonnements.</div>
+        </div>
+        <div>
+          <label class="label">Abonnements par profil</label>
+          <input type="number" id="discoveryPerProfile" value="20" min="1" max="200" step="1">
+          <div style="font-size:11px;color:#6b7280;margin-top:5px">Limite pour chaque profil explore.</div>
+        </div>
+        <div>
+          <label class="label">Limite globale</label>
+          <input type="number" id="discoveryMaxExplore" value="500" min="10" max="20000" step="50">
+          <div style="font-size:11px;color:#6b7280;margin-top:5px">Stop securite sur tous les niveaux.</div>
+        </div>
+        <div>
+          <label class="label">Score Groq min</label>
+          <input type="number" id="discoveryGroqMinScore" value="75" min="0" max="100" step="5">
+          <div style="font-size:11px;color:#6b7280;margin-top:5px">Utilise si Groq est lance.</div>
+        </div>
+      </div>
+      <div id="discoveryResult" style="margin-top:10px;font-size:13px;color:#cbd5e1"></div>
+      <div id="foundTargetsPanel" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.22);font-size:13px;color:#cbd5e1"></div>
+      <div id="discoverySummary" style="display:none;margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(0,0,0,0.24);border:1px solid rgba(255,255,255,0.08);font-size:13px;color:#cbd5e1;line-height:1.45"></div>
+    </div>
+
     <div class="row" style="margin-top:16px">
       <div>
-        <label class="label">Max par cible</label>
-        <input type="number" id="maxPer" value="2000" min="10">
+        <label class="label">Limite réelle par cible</label>
+        <input type="number" id="maxPer" value="2000" min="10" oninput="refreshEstimates()" onchange="refreshEstimates()">
+        <div style="font-size:11px;color:#6b7280;margin-top:5px">Nombre max de profils scrapés sur chaque compte.</div>
       </div>
       <div>
-        <label class="label">Scrapes en parallèle</label>
+        <label class="label">Cibles en même temps</label>
         <input type="number" id="parallel" value="3" min="1" max="5">
+        <div style="font-size:11px;color:#6b7280;margin-top:5px">Mets 1 avec un seul cookie/session.</div>
       </div>
+    </div>
+
+    <div class="row" style="margin-top:0">
+      <div>
+        <label class="label">Taux DM estimé (%)</label>
+        <input type="number" id="yieldRate" value="40" min="1" max="100" step="1" oninput="refreshEstimates()" onchange="refreshEstimates()">
+        <div style="font-size:11px;color:#6b7280;margin-top:5px">Si 40 profils sur 100 ont les DM ouverts, mets 40.</div>
+      </div>
+      <div>
+        <label class="label">Échantillon calibration</label>
+        <input type="number" id="calibrationSize" value="1000" min="50" max="5000" step="50">
+        <div style="font-size:11px;color:#6b7280;margin-top:5px">Nombre de profils à scraper pour mesurer le vrai taux.</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px">
+      <button type="button" onclick="applyPreset('test')" style="background:rgba(20,184,166,0.12);border:1px solid rgba(20,184,166,0.35);color:#5eead4;padding:9px 10px;border-radius:8px;cursor:pointer;font-weight:700">Test</button>
+      <button type="button" onclick="applyPreset('safe')" style="background:rgba(52,211,153,0.12);border:1px solid rgba(52,211,153,0.35);color:#86efac;padding:9px 10px;border-radius:8px;cursor:pointer;font-weight:700">Prudent</button>
+      <button type="button" onclick="applyPreset('normal')" style="background:rgba(96,165,250,0.12);border:1px solid rgba(96,165,250,0.35);color:#93c5fd;padding:9px 10px;border-radius:8px;cursor:pointer;font-weight:700">Normal</button>
+      <button type="button" onclick="applyPreset('fast')" style="background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.35);color:#fde68a;padding:9px 10px;border-radius:8px;cursor:pointer;font-weight:700">Agressif</button>
     </div>
 
     <label class="label">Cookies pour scrape (JSON array)</label>
     <textarea id="cookies" placeholder='[{"name":"auth_token","value":"..."},{"name":"ct0","value":"..."}]' style="min-height:80px"></textarea>
 
-    <div style="display:flex;gap:10px;margin-top:16px">
+    <div id="simpleActions" style="display:flex;gap:10px;margin-top:16px">
+      <button class="btn" onclick="runQuickTest()" style="flex:1;background:linear-gradient(135deg,#14b8a6,#0f766e)">🧪 Mode test</button>
+      <button class="btn" onclick="testCookies()" style="flex:1;background:rgba(52,211,153,0.18)">Test cookies</button>
+      <button class="btn" onclick="calibrateYield()" style="flex:1;background:rgba(251,191,36,0.18)">Calibrer taux réel</button>
       <button class="btn" onclick="previewTargets()" style="flex:1;background:rgba(255,255,255,0.08)">🔍 Analyser les cibles</button>
       <button class="btn" id="startBtn" onclick="startQueue()" style="flex:2">🚀 Lancer la queue</button>
     </div>
+    <div id="prodActions" style="margin-top:14px;border-top:1px solid rgba(255,255,255,0.08);padding-top:14px">
+      <div class="row" style="margin-top:0">
+        <div>
+          <label class="label">Combien d'hommes tu veux</label>
+          <input type="number" id="objectiveMen" value="10" min="1" step="1">
+          <div style="font-size:11px;color:#6b7280;margin-top:5px">Le job s'arrete quand ce nombre est atteint.</div>
+        </div>
+        <div>
+          <label class="label">Profils max a scanner</label>
+          <input type="number" id="objectiveMaxProfiles" value="100" min="10" step="10">
+          <div style="font-size:11px;color:#6b7280;margin-top:5px">Securite : stop ici meme si l'objectif n'est pas atteint.</div>
+        </div>
+        <div>
+          <label class="label">Profils par compte X</label>
+          <input type="number" id="objectivePerAccount" value="100" min="10" step="10">
+          <div style="font-size:11px;color:#6b7280;margin-top:5px">Apres ce nombre, il passe au compte suivant.</div>
+        </div>
+      </div>
+      <button class="btn" onclick="startObjectiveMen()" style="width:100%;background:linear-gradient(135deg,#10b981,#2563eb)">Lancer la recherche</button>
+    </div>
     <div id="previewResult" style="margin-top:12px"></div>
+    <div id="runLog" style="margin-top:12px;background:rgba(0,0,0,0.24);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 12px;color:#9ca3af;font-size:12px;line-height:1.45;max-height:130px;overflow:auto"></div>
   </div>
 
   <div class="card">
     <h3>➕ Ajouter des comptes au pool</h3>
-    <p style="color:#9ca3af;font-size:13px;margin-bottom:12px">Format (1 ligne par compte) : <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;font-size:11px">user:password:email:mdp_email:ct0:auth_token:totp</code></p>
-    <textarea id="newAccounts" placeholder="user1:pass1:mail1:mdpmail1:ct0_long...:auth_token_40:totp_key&#10;user2:pass2:mail2..." style="min-height:80px"></textarea>
+    <p style="color:#9ca3af;font-size:13px;margin-bottom:12px">Format accepte : <code style="background:rgba(0,0,0,0.3);padding:2px 6px;border-radius:4px;font-size:11px">user:password:email:mdp_email:totp:auth_token</code>. Les champs sensibles sont ignores, seul auth_token est garde.</p>
+    <textarea id="newAccounts" placeholder="user1:pass1:mail1:mdpmail1:totp_key:auth_token_40&#10;user2:pass2:mail2:mdpmail2:totp_key:auth_token_40" style="min-height:80px"></textarea>
     <button class="btn" onclick="addAccounts()" style="margin-top:12px;background:linear-gradient(135deg,#34d399,#10b981)">➕ Ajouter au pool</button>
+    <button class="btn" onclick="grabCookies('newAccounts','addResult')" style="margin-top:8px;background:rgba(96,165,250,0.18)">Recuperer cookies automatiquement</button>
     <div id="addResult" style="margin-top:10px;font-size:13px;color:#9ca3af"></div>
   </div>
 
@@ -152,13 +289,18 @@ textarea { min-height: 120px; font-family: monospace; }
         <textarea id="resultFemales" readonly style="min-height:180px"></textarea>
         <button class="btn" onclick="copyFemales()" style="margin-top:6px;background:linear-gradient(135deg,#f472b6,#ec4899)">📋 Copier femmes</button>
       </div>
+      <div style="display:none">
+        <div style="font-size:12px;color:#fbbf24;font-weight:700;margin-bottom:6px">? INCONNUS (<span id="nbUnknowns">0</span>)</div>
+        <textarea id="resultUnknowns" readonly style="min-height:180px"></textarea>
+        <button class="btn" onclick="copyUnknowns()" style="margin-top:6px;background:linear-gradient(135deg,#fbbf24,#d97706)">Copier inconnus</button>
+      </div>
     </div>
 
     <details style="margin-top:12px">
-      <summary style="cursor:pointer;color:#9ca3af;font-size:12px">Liste complète (hommes + femmes)</summary>
+      <summary style="cursor:pointer;color:#9ca3af;font-size:12px">Liste hommes exportable</summary>
       <textarea id="resultList" readonly style="min-height:150px;margin-top:8px"></textarea>
       <div style="display:flex;gap:10px;margin-top:6px">
-        <button class="btn" onclick="copyResult()" style="flex:1">📋 Copier tout</button>
+        <button class="btn" onclick="copyResult()" style="flex:1">📋 Copier hommes</button>
         <button class="btn" onclick="downloadResult()" style="flex:1;background:rgba(255,255,255,0.1)">💾 Télécharger .txt</button>
       </div>
     </details>
@@ -177,9 +319,10 @@ textarea { min-height: 120px; font-family: monospace; }
 
     <div class="card">
       <h3>➕ Ajouter des comptes</h3>
-      <p style="color:#6b7280;font-size:12px;margin-bottom:8px">Format : <code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:4px;font-size:11px;color:#a78bfa">user:password:email:mdp_email:ct0:auth_token:totp</code></p>
-      <textarea id="newAccountsTab" placeholder="user1:pass1:email1:mdp1:ct0...:auth_token:totp&#10;user2:..."></textarea>
+      <p style="color:#6b7280;font-size:12px;margin-bottom:8px">Format accepte : <code style="background:rgba(0,0,0,0.4);padding:2px 6px;border-radius:4px;font-size:11px;color:#a78bfa">user:password:email:mdp_email:totp:auth_token</code>. Le site ignore email/mots de passe/2FA.</p>
+      <textarea id="newAccountsTab" placeholder="user1:pass1:email1:mdp1:totp:auth_token&#10;user2:..."></textarea>
       <button class="btn" onclick="addAccountsTab()" style="margin-top:12px;background:linear-gradient(135deg,#34d399,#10b981)">➕ Ajouter au pool</button>
+      <button class="btn" onclick="grabCookies('newAccountsTab','addResultTab')" style="margin-top:8px;background:rgba(96,165,250,0.18)">Recuperer cookies automatiquement</button>
       <div id="addResultTab" style="margin-top:10px;font-size:13px;color:#9ca3af"></div>
     </div>
 
@@ -192,6 +335,21 @@ textarea { min-height: 120px; font-family: monospace; }
 
 <script>
 let currentQid = null;
+let lastProgressLog = {};
+
+function apiUrl(path) {
+  return new URL(path, window.location.origin).href;
+}
+
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[ch]);
+}
 
 function switchTab(name) {
   document.getElementById('viewQueue').style.display = name === 'queue' ? 'block' : 'none';
@@ -201,8 +359,37 @@ function switchTab(name) {
   if (name === 'accounts') refreshAccounts();
 }
 
+function setMainMode(mode) {
+  const isProd = mode === 'prod';
+  document.getElementById('modeTestBtn').classList.toggle('active', !isProd);
+  document.getElementById('modeProdBtn').classList.toggle('active', isProd);
+  document.getElementById('simpleActions').classList.toggle('hidden-simple', isProd);
+  document.getElementById('prodActions').classList.toggle('hidden-simple', !isProd);
+
+  // Cache les reglages historiques qui ne servent pas dans le mode production.
+  const setup = document.getElementById('setupCard');
+  const labelsToHideInProd = [
+    'Objectif DM',
+    'Estimation',
+    'Taux DM',
+    'Échantillon',
+    'Cookies pour scrape'
+  ];
+  const blocks = setup.querySelectorAll('label, textarea#cookies');
+  blocks.forEach(el => {
+    const text = (el.textContent || '').trim();
+    const hide = isProd && (el.id === 'cookies' || labelsToHideInProd.some(x => text.includes(x)));
+    const parent = el.closest('.row > div') || el;
+    parent.classList.toggle('hidden-simple', hide);
+  });
+  const presetGrid = setup.querySelector("button[onclick=\"applyPreset('test')\"]")?.parentElement;
+  if (presetGrid) presetGrid.classList.toggle('hidden-simple', isProd);
+  const goalWrap = document.getElementById('goalBarWrap');
+  if (goalWrap) goalWrap.classList.toggle('hidden-simple', isProd);
+}
+
 async function refreshAccounts() {
-  const p = await fetch('/api/pool/status').then(r => r.json());
+  const p = await fetch(apiUrl('/api/pool/status')).then(r => r.json());
   const accs = p.accounts || [];
   const active = accs.filter(a => a.available).length;
   const cd = accs.filter(a => !a.available).length;
@@ -264,36 +451,63 @@ async function refreshAccounts() {
 async function addAccountsTab() {
   const raw = document.getElementById('newAccountsTab').value;
   if (!raw.trim()) { alert('Colle au moins 1 ligne'); return; }
-  const resp = await fetch('/api/pool/add', {
+  const resp = await fetch(apiUrl('/api/pool/add'), {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({raw})
   }).then(r => r.json());
   const el = document.getElementById('addResultTab');
   el.textContent = '✅ ' + resp.added + ' ajoutés • ' + resp.duplicates + ' doublons • ' + resp.invalid + ' invalides • Total : ' + resp.total;
+  el.textContent = 'Ajoutes ' + resp.added + ' | ct0 recuperes ' + (resp.hydrated_ct0 || 0) + ' | sans ct0 ' + (resp.missing_ct0 || 0) + ' | doublons ' + resp.duplicates + ' | invalides ' + resp.invalid + ' | Total : ' + resp.total;
   el.style.color = '#34d399';
   if (resp.added > 0) { document.getElementById('newAccountsTab').value = ''; refreshAccounts(); }
 }
 
+async function grabCookies(textareaId, resultId) {
+  const raw = document.getElementById(textareaId).value;
+  const el = document.getElementById(resultId);
+  if (!raw.trim()) { alert('Colle au moins 1 ligne'); return; }
+  el.textContent = 'Recuperation cookies lancee... Une fenetre X peut demander une verification.';
+  el.style.color = '#93c5fd';
+  const start = await fetch(apiUrl('/api/pool/grab-cookies'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({raw})
+  }).then(r => r.json());
+  const jobId = start.job_id;
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));
+    const st = await fetch(apiUrl('/api/pool/grab-cookies/' + jobId)).then(r => r.json());
+    el.textContent = st.message + (st.output ? '\n' + st.output.split('\n').slice(-8).join('\n') : '');
+    if (st.status !== 'running') {
+      el.style.color = st.status === 'completed' ? '#34d399' : '#f87171';
+      refreshAccounts();
+      loadPoolStatus();
+      break;
+    }
+  }
+}
+
 async function removeAccount(user) {
   if (!confirm('Supprimer @' + user + ' du pool ?')) return;
-  await fetch('/api/pool/remove?user=' + encodeURIComponent(user), {method: 'POST'});
+  await fetch(apiUrl('/api/pool/remove?user=' + encodeURIComponent(user)), {method: 'POST'});
   refreshAccounts();
 }
 
 switchTab('queue');
+setMainMode('prod');
 setInterval(() => { if (document.getElementById('viewAccounts').style.display !== 'none') refreshAccounts(); }, 5000);
 
 async function loadHistory() {
   try {
-    const s = await fetch('/api/history/stats').then(r => r.json());
+    const s = await fetch(apiUrl('/api/history/stats')).then(r => r.json());
     document.getElementById('historyCount').textContent = s.total;
   } catch {}
 }
 
 async function clearHistory() {
   if (!confirm('Réinitialiser l\'historique ? Tous les @ déjà traités pourront revenir.')) return;
-  await fetch('/api/history/clear', {method: 'POST'});
+  await fetch(apiUrl('/api/history/clear'), {method: 'POST'});
   loadHistory();
 }
 
@@ -302,25 +516,72 @@ loadHistory();
 async function addAccounts() {
   const raw = document.getElementById('newAccounts').value;
   if (!raw.trim()) { alert('Colle au moins 1 ligne'); return; }
-  const resp = await fetch('/api/pool/add', {
+  const resp = await fetch(apiUrl('/api/pool/add'), {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({raw})
   }).then(r => r.json());
   const msg = '✅ ' + resp.added + ' ajoutés • ' + resp.duplicates + ' doublons • ' + resp.invalid + ' invalides • Pool total : ' + resp.total;
-  document.getElementById('addResult').textContent = msg;
+  document.getElementById('addResult').textContent = 'Ajoutes ' + resp.added + ' | ct0 recuperes ' + (resp.hydrated_ct0 || 0) + ' | sans ct0 ' + (resp.missing_ct0 || 0) + ' | doublons ' + resp.duplicates + ' | invalides ' + resp.invalid + ' | Pool total : ' + resp.total;
   document.getElementById('addResult').style.color = '#34d399';
   if (resp.added > 0) {
     document.getElementById('newAccounts').value = '';
   }
 }
 
-const YIELD_RATE = 0.06; // 6% scrape → validé en moyenne
+const DEFAULT_YIELD_RATE = 0.40; // estimation UI uniquement
 let analyzeTimer = null;
 let lastAnalysis = { total_followers: 0, targets: [] };
 
+function currentYieldRate() {
+  const raw = parseFloat(document.getElementById('yieldRate')?.value);
+  if (!Number.isFinite(raw) || raw <= 0) return DEFAULT_YIELD_RATE;
+  return Math.min(100, raw) / 100;
+}
+
+function logRun(message, tone = 'info') {
+  const log = document.getElementById('runLog');
+  if (!log) return;
+  const line = document.createElement('div');
+  const now = new Date().toLocaleTimeString('fr-FR', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+  line.textContent = '[' + now + '] ' + message;
+  line.style.color = tone === 'ok' ? '#86efac' : (tone === 'warn' ? '#fde68a' : (tone === 'error' ? '#fca5a5' : '#9ca3af'));
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function applyPreset(name) {
+  const presets = {
+    test: {max: 10, parallel: 1, goal: 4, yieldRate: 40, label: 'Test'},
+    safe: {max: 100, parallel: 1, goal: 40, yieldRate: 40, label: 'Prudent'},
+    normal: {max: 500, parallel: 2, goal: 200, yieldRate: 40, label: 'Normal'},
+    fast: {max: 2000, parallel: 3, goal: 800, yieldRate: 40, label: 'Agressif'}
+  };
+  const p = presets[name];
+  if (!p) return;
+  document.getElementById('maxPer').value = p.max;
+  document.getElementById('parallel').value = p.parallel;
+  document.getElementById('goal').value = p.goal;
+  document.getElementById('yieldRate').value = p.yieldRate;
+  refreshEstimates();
+  logRun('Preset ' + p.label + ' applique : limite ' + p.max + ' profils par cible, ' + p.parallel + ' cible(s) en meme temps, objectif ' + p.goal + ' DM, taux estime ' + p.yieldRate + '%.', name === 'fast' ? 'warn' : 'ok');
+}
+
+function effectiveFollowerTotal(analysis = lastAnalysis) {
+  const maxPer = parseInt(document.getElementById('maxPer').value) || null;
+  const targets = analysis.targets || [];
+  return targets.reduce((sum, t) => {
+    if (!t.found) return sum;
+    return sum + (maxPer ? Math.min(t.followers || 0, maxPer) : (t.followers || 0));
+  }, 0);
+}
+
 function debouncedAnalyze() {
   clearTimeout(analyzeTimer);
+  const result = document.getElementById('previewResult');
+  if (result) {
+    while (result.firstChild) result.removeChild(result.firstChild);
+  }
   analyzeTimer = setTimeout(analyzeTargetsAuto, 1200);
 }
 
@@ -337,16 +598,38 @@ async function analyzeTargetsAuto() {
   try { cookies = JSON.parse(document.getElementById('cookies').value); }
   catch { return; } // pas de cookies valides, on analyse pas
 
-  const resp = await fetch('/api/queue/preview', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({targets: lines, cookies})
-  }).then(r => r.json()).catch(() => null);
+  const resp = await fetchPreview(lines, cookies).catch(() => null);
 
   if (!resp) return;
   lastAnalysis = resp;
   renderBreakdown();
-  updateGoal();
+  refreshEstimates();
+  logRun('Analyse auto OK : ' + lines.length + ' cible(s).', 'ok');
+}
+
+async function fetchPreview(targets, cookies) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const httpResp = await fetch(apiUrl('/api/queue/preview'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({targets, cookies}),
+      signal: controller.signal
+    });
+    const data = await httpResp.json().catch(() => ({}));
+    if (!httpResp.ok) {
+      throw new Error(data.detail || 'Erreur HTTP ' + httpResp.status);
+    }
+    return data;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Analyse trop longue. Verifie que tes cookies X/Twitter sont valides, puis réessaie.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function renderBreakdown() {
@@ -368,16 +651,17 @@ function renderBreakdown() {
 
 function updateGoal() {
   const goal = parseInt(document.getElementById('goal').value) || 0;
-  const totalFollowers = lastAnalysis.total_followers || 0;
-  const needed = Math.ceil(goal / YIELD_RATE);
+  const totalFollowers = effectiveFollowerTotal();
+  const yieldRate = currentYieldRate();
+  const needed = Math.ceil(goal / yieldRate);
   const pct = needed > 0 ? Math.min(100, Math.round((totalFollowers / needed) * 100)) : 0;
-  const estValidated = Math.round(totalFollowers * YIELD_RATE);
+  const estValidated = Math.round(totalFollowers * yieldRate);
 
   const st = document.getElementById('goalStatus');
   while (st.firstChild) st.removeChild(st.firstChild);
 
   if (totalFollowers === 0) {
-    st.textContent = 'Ajoute des cibles ↓';
+    st.textContent = 'Ajoute des cibles pour voir une estimation';
     st.style.color = '#9ca3af';
     document.getElementById('goalBarWrap').style.display = 'none';
     return;
@@ -388,19 +672,60 @@ function updateGoal() {
 
   const main = document.createElement('div');
   main.style.cssText = 'font-weight:700;font-size:14px;margin-bottom:2px';
-  if (pct >= 100) {
-    main.textContent = '✅ Objectif atteint';
-    main.style.color = '#34d399';
-  } else {
-    main.textContent = '~' + estValidated.toLocaleString('fr-FR') + ' validés estimés';
-    main.style.color = '#a78bfa';
-  }
+  main.textContent = 'Avec ces cibles : environ ' + estValidated.toLocaleString('fr-FR') + ' DM';
+  main.style.color = pct >= 100 ? '#34d399' : '#a78bfa';
+
   const sub = document.createElement('div');
   sub.style.cssText = 'font-size:11px;color:#9ca3af';
   const missing = Math.max(0, needed - totalFollowers);
-  sub.textContent = totalFollowers.toLocaleString('fr-FR') + ' / ' + needed.toLocaleString('fr-FR') + ' followers (' + (missing > 0 ? 'manque ' + missing.toLocaleString('fr-FR') : 'objectif atteint') + ')';
-  st.appendChild(main); st.appendChild(sub);
+  sub.textContent = 'Tu veux ' + goal.toLocaleString('fr-FR') + ' DM. Pour ca, il faudrait scraper environ ' + needed.toLocaleString('fr-FR') + ' profils. Ta limite actuelle permet ' + totalFollowers.toLocaleString('fr-FR') + ' profils' + (missing > 0 ? ' : il manque ' + missing.toLocaleString('fr-FR') + ' profils.' : ' : objectif atteignable.');
+
+  st.appendChild(main);
+  st.appendChild(sub);
   st.style.color = '#e7e9ea';
+}
+
+function refreshEstimates() {
+  updateGoal();
+  if (lastAnalysis.targets && lastAnalysis.targets.length) {
+    renderPreviewResult(lastAnalysis);
+  }
+}
+
+function renderPreviewResult(resp) {
+  const result = document.getElementById('previewResult');
+  while (result.firstChild) result.removeChild(result.firstChild);
+
+  const totalBox = document.createElement('div');
+  totalBox.style.cssText = 'background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:10px;padding:14px;margin-bottom:10px;text-align:center';
+  const totalLabel = document.createElement('div');
+  totalLabel.textContent = 'Profils réellement à scraper';
+  totalLabel.style.cssText = 'font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
+  const totalVal = document.createElement('div');
+  const effectiveTotal = effectiveFollowerTotal(resp);
+  totalVal.textContent = effectiveTotal.toLocaleString('fr-FR');
+  totalVal.style.cssText = 'font-size:28px;font-weight:700;color:#a78bfa';
+  const estimate = document.createElement('div');
+  const hours = Math.round((effectiveTotal * 0.8) / 7000 * 10) / 10;
+  const realValidated = Math.round(effectiveTotal * currentYieldRate());
+  estimate.textContent = 'Limite actuelle appliquée. ≈ ' + realValidated.toLocaleString('fr-FR') + ' DM estimés (~' + hours + 'h de queue)';
+  estimate.style.cssText = 'font-size:12px;color:#9ca3af;margin-top:4px';
+  totalBox.appendChild(totalLabel); totalBox.appendChild(totalVal); totalBox.appendChild(estimate);
+  result.appendChild(totalBox);
+
+  for (const t of resp.targets) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;justify-content:space-between;padding:8px 12px;background:rgba(0,0,0,0.2);border-radius:8px;margin-bottom:4px;font-size:13px';
+    const name = document.createElement('span');
+    name.textContent = '@' + t.target;
+    name.style.cssText = 'color:' + (t.found ? '#fff' : '#f87171');
+    const count = document.createElement('span');
+    count.textContent = t.found ? t.followers.toLocaleString('fr-FR') + ' followers au total' : 'introuvable';
+    count.style.cssText = 'color:#a78bfa;font-weight:600';
+    row.appendChild(name);
+    row.appendChild(count);
+    result.appendChild(row);
+  }
 }
 
 async function previewTargets() {
@@ -416,27 +741,43 @@ async function previewTargets() {
   loading.textContent = '⏳ Analyse en cours...';
   loading.style.cssText = 'color:#9ca3af;font-size:13px;text-align:center;padding:12px';
   result.appendChild(loading);
+  logRun('Analyse des cibles lancee...');
 
-  const resp = await fetch('/api/queue/preview', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({targets, cookies})
-  }).then(r => r.json());
+  let resp;
+  try {
+    resp = await fetchPreview(targets, cookies);
+  } catch (err) {
+    while (result.firstChild) result.removeChild(result.firstChild);
+    const errorBox = document.createElement('div');
+    errorBox.textContent = 'Erreur analyse : ' + err.message;
+    errorBox.style.cssText = 'color:#f87171;font-size:13px;text-align:center;padding:12px;background:rgba(248,113,113,0.08);border:1px solid rgba(248,113,113,0.25);border-radius:8px';
+    result.appendChild(errorBox);
+    logRun('Analyse echouee : ' + err.message, 'error');
+    return;
+  }
+
+  lastAnalysis = resp;
+  renderBreakdown();
+  updateGoal();
+  logRun('Analyse OK : ' + effectiveFollowerTotal(resp).toLocaleString('fr-FR') + ' profils a scraper avec la limite actuelle.', 'ok');
+  renderPreviewResult(resp);
+  return;
 
   while (result.firstChild) result.removeChild(result.firstChild);
 
   const totalBox = document.createElement('div');
   totalBox.style.cssText = 'background:rgba(139,92,246,0.1);border:1px solid rgba(139,92,246,0.3);border-radius:10px;padding:14px;margin-bottom:10px;text-align:center';
   const totalLabel = document.createElement('div');
-  totalLabel.textContent = 'Total followers à scraper';
+  totalLabel.textContent = 'Profils réellement à scraper';
   totalLabel.style.cssText = 'font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px';
   const totalVal = document.createElement('div');
-  totalVal.textContent = resp.total_followers.toLocaleString('fr-FR');
+  const effectiveTotal = effectiveFollowerTotal(resp);
+  totalVal.textContent = effectiveTotal.toLocaleString('fr-FR');
   totalVal.style.cssText = 'font-size:28px;font-weight:700;color:#a78bfa';
   const estimate = document.createElement('div');
-  const hours = Math.round((resp.total_followers * 0.8) / 7000 * 10) / 10;
-  const realValidated = Math.round(resp.total_followers * 0.06);
-  estimate.textContent = '≈ ' + realValidated.toLocaleString('fr-FR') + ' validés (~' + hours + 'h de queue)';
+  const hours = Math.round((effectiveTotal * 0.8) / 7000 * 10) / 10;
+  const realValidated = Math.round(effectiveTotal * currentYieldRate());
+  estimate.textContent = 'Limite appliquée. ≈ ' + realValidated.toLocaleString('fr-FR') + ' DM estimés (~' + hours + 'h de queue)';
   estimate.style.cssText = 'font-size:12px;color:#9ca3af;margin-top:4px';
   totalBox.appendChild(totalLabel); totalBox.appendChild(totalVal); totalBox.appendChild(estimate);
   result.appendChild(totalBox);
@@ -455,11 +796,61 @@ async function previewTargets() {
   }
 }
 
-async function startQueue() {
+async function runQuickTest() {
+  applyPreset('test');
+  document.getElementById('targets').value = 'SharonSurX';
+  lastAnalysis = { total_followers: 0, targets: [] };
+  renderBreakdown();
+  updateGoal();
+
+  const result = document.getElementById('previewResult');
+  while (result.firstChild) result.removeChild(result.firstChild);
+  const box = document.createElement('div');
+  box.textContent = 'Mode test prêt : petite cible féminine SharonSurX, max 10, parallèle 1. Analyse en cours...';
+  box.style.cssText = 'color:#5eead4;font-size:13px;text-align:center;padding:12px;background:rgba(20,184,166,0.08);border:1px solid rgba(20,184,166,0.25);border-radius:8px;margin-bottom:8px';
+  result.appendChild(box);
+  logRun('Mode test prepare avec SharonSurX.', 'ok');
+
+  await previewTargets();
+}
+
+async function testCookies() {
+  let cookies;
+  try { cookies = JSON.parse(document.getElementById('cookies').value); }
+  catch (err) { alert('Cookies invalides: ' + err.message); logRun('Cookies invalides: ' + err.message, 'error'); return; }
+  if (!Array.isArray(cookies)) {
+    alert('Cookies invalides: JSON array requis');
+    logRun('Cookies invalides: JSON array requis.', 'error');
+    return;
+  }
+  const names = cookies.map(c => c && c.name);
+  if (!names.includes('auth_token') || !names.includes('ct0')) {
+    alert('Cookies incomplets: auth_token et ct0 requis');
+    logRun('Cookies incomplets: auth_token et ct0 requis.', 'error');
+    return;
+  }
+  logRun('Test cookies lance avec la cible SharonSurX...');
+  try {
+    const resp = await fetchPreview(['SharonSurX'], cookies);
+    const target = (resp.targets || [])[0];
+    if (target && target.found) {
+      logRun('Cookies OK : cible test trouvee (' + target.followers.toLocaleString('fr-FR') + ' followers).', 'ok');
+      alert('Cookies OK : connexion X/Twitter valide.');
+    } else {
+      logRun('Cookies refuses ou cible test introuvable.', 'error');
+      alert('Cookies refuses ou cible test introuvable.');
+    }
+  } catch (err) {
+    logRun('Test cookies echoue : ' + err.message, 'error');
+    alert('Test cookies echoue : ' + err.message);
+  }
+}
+
+function readQueueForm() {
   console.log('[QUEUE UI] startQueue clicked');
   const targets = document.getElementById('targets').value.split('\n').map(s => s.trim()).filter(s => s);
   console.log('[QUEUE UI] targets:', targets);
-  if (targets.length === 0) { alert('Colle au moins 1 cible'); return; }
+  if (targets.length === 0) { alert('Colle au moins 1 cible'); return null; }
 
   let cookies;
   try {
@@ -470,17 +861,32 @@ async function startQueue() {
   } catch (err) {
     console.error('[QUEUE UI] cookies JSON parse failed:', err);
     alert('Cookies invalides (JSON array requis): ' + err.message);
-    return;
+    return null;
   }
 
   if (!Array.isArray(cookies)) {
     console.error('[QUEUE UI] cookies is not an array:', cookies);
     alert('Cookies invalides: colle un JSON array, exemple [{"name":"auth_token","value":"..."},{"name":"ct0","value":"..."}]');
-    return;
+    return null;
   }
 
   const maxPer = parseInt(document.getElementById('maxPer').value) || null;
   const parallel = parseInt(document.getElementById('parallel').value) || 3;
+  return {targets, cookies, maxPer, parallel};
+}
+
+async function startQueue() {
+  const form = readQueueForm();
+  if (!form) return;
+  const {targets, cookies, maxPer, parallel} = form;
+  const estimatedTotal = lastAnalysis.targets && lastAnalysis.targets.length ? effectiveFollowerTotal() : null;
+  if ((maxPer && maxPer > 500) || parallel > 2 || (estimatedTotal && estimatedTotal > 1000)) {
+    const msg = 'Reglages eleves : max=' + (maxPer || 'illimite') + ', parallele=' + parallel + (estimatedTotal ? ', environ ' + estimatedTotal.toLocaleString('fr-FR') + ' profils.' : '.') + '\nContinuer ?';
+    if (!confirm(msg)) {
+      logRun('Lancement annule par securite.', 'warn');
+      return;
+    }
+  }
   const payload = {targets, cookies, max_per_target: maxPer, parallel};
   console.log('[QUEUE UI] POST /api/queue/start payload:', {
     targets,
@@ -491,7 +897,7 @@ async function startQueue() {
 
   let resp;
   try {
-    const httpResp = await fetch('/api/queue/start', {
+    const httpResp = await fetch(apiUrl('/api/queue/start'), {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
@@ -502,12 +908,15 @@ async function startQueue() {
   } catch (err) {
     console.error('[QUEUE UI] /api/queue/start failed:', err);
     alert('Erreur reseau au lancement: ' + err.message);
+    logRun('Erreur reseau au lancement : ' + err.message, 'error');
     return;
   }
 
-  if (!resp.queue_id) { alert('Erreur : ' + (resp.detail || '?')); return; }
+  if (!resp.queue_id) { alert('Erreur : ' + (resp.detail || '?')); logRun('Lancement refuse : ' + (resp.detail || '?'), 'error'); return; }
 
   currentQid = resp.queue_id;
+  lastProgressLog = {};
+  logRun('Queue lancee : ' + currentQid + ' (' + targets.length + ' cible(s)).', 'ok');
   document.getElementById('setupCard').style.display = 'none';
   document.getElementById('progressCard').style.display = 'block';
   document.getElementById('poolCard').style.display = 'block';
@@ -516,10 +925,641 @@ async function startQueue() {
   pollPool();
 }
 
+async function startObjectiveMen() {
+  const targets = document.getElementById('targets').value.split('\n').map(s => s.trim()).filter(s => s);
+  if (targets.length === 0) { alert('Colle au moins 1 cible'); return; }
+  const objective_men = parseInt(document.getElementById('objectiveMen').value) || 10;
+  const max_profiles = parseInt(document.getElementById('objectiveMaxProfiles').value) || 100;
+  const per_account_limit = parseInt(document.getElementById('objectivePerAccount').value) || 100;
+  if (max_profiles < objective_men) {
+    alert('La limite securite doit etre superieure a l objectif.');
+    return;
+  }
+  const msg = 'Mode objectif hommes : ' + objective_men + ' hommes nouveaux, max ' + max_profiles + ' profils, quota ' + per_account_limit + ' par compte. Continuer ?';
+  if (!confirm(msg)) return;
+  const httpResp = await fetch(apiUrl('/api/objective-men/start'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({targets, objective_men, max_profiles, per_account_limit})
+  });
+  const resp = await httpResp.json();
+  if (!resp.job_id) {
+    alert('Erreur objectif hommes : ' + (resp.detail || '?'));
+    return;
+  }
+  currentQid = resp.job_id;
+  document.getElementById('setupCard').style.display = 'none';
+  document.getElementById('progressCard').style.display = 'block';
+  document.getElementById('poolCard').style.display = 'block';
+  logRun('Objectif hommes lance : ' + resp.job_id, 'ok');
+  pollObjectiveMen(resp.job_id);
+  pollPool();
+}
+
+let lastDiscoveredTargets = [];
+let lastDiscoveryState = null;
+let lastGroqDiscovery = null;
+
+function applyDiscoveryPreset(mode) {
+  const presets = {
+    safe: {depth: 2, per: 10, max: 200, targets: 20},
+    normal: {depth: 3, per: 20, max: 1000, targets: 50},
+    large: {depth: 4, per: 30, max: 3000, targets: 150}
+  };
+  const p = presets[mode] || presets.safe;
+  document.getElementById('discoveryDepth').value = p.depth;
+  document.getElementById('discoveryPerProfile').value = p.per;
+  document.getElementById('discoveryMaxExplore').value = p.max;
+  document.getElementById('discoveryMaxTargets').value = p.targets;
+}
+
+async function startTargetDiscovery() {
+  lastGroqDiscovery = null;
+  const seedsBox = document.getElementById('discoverySeeds');
+  let seeds = seedsBox.value.split('\n').map(s => s.trim()).filter(Boolean);
+  if (seeds.length === 0) {
+    seeds = document.getElementById('targets').value.split('\n').map(s => s.trim()).filter(Boolean);
+  }
+  if (seeds.length === 0) {
+    alert('Ajoute au moins 1 seed. Exemple : une creatrice US deja connue.');
+    return;
+  }
+  const max_targets = parseInt(document.getElementById('discoveryMaxTargets').value) || 20;
+  const max_followers = parseInt(document.getElementById('discoveryMaxFollowers').value) || 50000;
+  const scan_limit = parseInt(document.getElementById('discoveryScanLimit').value) || 300;
+  const depth = parseInt(document.getElementById('discoveryDepth').value) || 2;
+  const per_profile_limit = parseInt(document.getElementById('discoveryPerProfile').value) || 20;
+  const max_explore = parseInt(document.getElementById('discoveryMaxExplore').value) || 500;
+  if (depth >= 4 || max_explore > 2000) {
+    const ok = confirm('Recherche large : profondeur ' + depth + ', limite globale ' + max_explore + '. Cela peut etre long et consommer les comptes. Continuer ?');
+    if (!ok) return;
+  }
+  const box = document.getElementById('discoveryResult');
+  box.innerHTML = 'Recherche en cours...';
+  document.getElementById('discoveryProgress').style.display = 'block';
+  document.getElementById('discoveryProgressText').textContent = 'Demarrage de la recherche...';
+  document.getElementById('discoveryProgressPct').textContent = '0%';
+  document.getElementById('discoveryProgressBar').style.width = '0%';
+
+  const httpResp = await fetch(apiUrl('/api/target-discovery/start'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({seeds, max_targets, max_followers, scan_limit, min_followers: 0, list_type: 'following', depth, per_profile_limit, max_explore})
+  });
+  const resp = await httpResp.json();
+  if (!resp.job_id) {
+    box.innerHTML = '<span style="color:#fca5a5">Erreur : ' + (resp.detail || '?') + '</span>';
+    return;
+  }
+  pollTargetDiscovery(resp.job_id);
+}
+
+async function pollTargetDiscovery(jobId) {
+  while (true) {
+    await new Promise(r => setTimeout(r, 1800));
+    const st = await fetch(apiUrl('/api/target-discovery/' + jobId)).then(r => r.json());
+    renderTargetDiscovery(st);
+    if (st.status !== 'running') {
+      if (document.getElementById('autoGroqDiscovery')?.checked && getGroqKeysQ().length > 0) {
+        await analyzeDiscoveryGroq();
+      }
+      break;
+    }
+  }
+}
+
+function renderTargetDiscovery(st) {
+  lastDiscoveryState = st;
+  updateDiscoveryProgress(st);
+  const box = document.getElementById('discoveryResult');
+  const kept = st.kept || [];
+  const logs = st.logs || [];
+  const sampled = st.sampled || [];
+  const groqAccepted = lastGroqDiscovery ? (lastGroqDiscovery.accepted || []) : [];
+  const groqRejected = lastGroqDiscovery ? (lastGroqDiscovery.rejected || []) : [];
+  const sampledLines = sampled.slice(0, 30).map(item => {
+    const icon = item.status === 'kept' ? 'OK' : 'REFUSE';
+    return icon + ' @' + (item.username || '-') +
+      (item.name ? ' - ' + item.name : '') +
+      ' (' + (item.reason || '-') + ', ' + (item.source_list || '-') + ')';
+  });
+  lastDiscoveredTargets = kept.map(x => x.username).filter(Boolean);
+  const rejected = st.rejected || {};
+  const statusLine =
+    '<div style="margin-bottom:8px">' +
+    '<strong>' + kept.length + '/' + st.max_targets + ' cibles trouvees</strong>' +
+    ' | analyses : ' + (st.seen || 0) +
+    ' | seed : @' + (st.current_seed || '-') +
+    ' | statut : ' + st.status +
+    '</div>';
+  const rejectLine =
+    '<div style="font-size:12px;color:#94a3b8;margin-bottom:8px">Rejetes : hors US ' + (rejected.not_us || 0) +
+    ' | aucun signal anglais ' + (rejected.no_us_signal || 0) +
+    ' | pas femme ' + (rejected.not_female || 0) +
+    ' | pas creatrice ' + (rejected.not_creator || 0) +
+    ' | plus de ' + Number(st.max_followers || 0).toLocaleString('fr-FR') + ' followers ' + (rejected.followers || 0) +
+    ' | doublons ' + (rejected.duplicate || 0) +
+    ' | deja decouvertes ' + (rejected.already_discovered || 0) +
+    ' | blacklist ' + (rejected.blacklisted || 0) +
+    ' | listes vides ' + (rejected.empty_lists || 0) + '</div>';
+  const rows = kept.slice(0, 30).map(t =>
+    '<div style="padding:7px 0;border-top:1px solid rgba(255,255,255,0.07);display:grid;grid-template-columns:150px 1fr 90px;gap:8px;align-items:center">' +
+    '<strong>@' + escapeHtml(t.username) + '</strong>' +
+    '<span style="color:#94a3b8">' + escapeHtml(t.name || '') + (t.location ? ' - ' + escapeHtml(t.location) : '') + '</span>' +
+    '<span style="text-align:right;color:#a78bfa">' + Number(t.followers || 0).toLocaleString('fr-FR') + '</span>' +
+    '</div>'
+  ).join('');
+  const addBtn = kept.length
+    ? '<button type="button" onclick="addDiscoveredTargets()" style="margin-top:10px;background:#10b981;color:#fff;border:none;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer">Ajouter aux cibles</button>'
+    : '';
+  box.innerHTML = statusLine + rejectLine + rows + addBtn;
+  renderFoundTargetsPanel();
+}
+
+function currentFoundTargets() {
+  const strict = !!document.getElementById('strictDiscoveryQuality')?.checked;
+  const minScore = parseInt(document.getElementById('discoveryGroqMinScore')?.value) || 0;
+  if (lastGroqDiscovery && lastGroqDiscovery.accepted && lastGroqDiscovery.accepted.length) {
+    return lastGroqDiscovery.accepted
+    .filter(x => !strict || (Number(x.score || 0) >= minScore))
+    .map(x => ({
+      username: x.username,
+      name: x.name || '',
+      source: x.source_list || '',
+      score: Number(x.score || 0),
+      reason: (x.score ? x.score + '/100 - ' : '') + (x.reason || 'ok Groq'),
+      via: 'Groq'
+    }));
+  }
+  if (strict) return [];
+  return (lastDiscoveryState?.kept || []).map(x => ({
+    username: x.username,
+    name: x.name || '',
+    source: x.source_list || '',
+    reason: 'heuristique',
+    via: 'Auto'
+  }));
+}
+
+function renderFoundTargetsPanel() {
+  const panel = document.getElementById('foundTargetsPanel');
+  if (!panel) return;
+  const targets = currentFoundTargets().filter(x => x.username);
+  if (!targets.length) {
+    panel.style.display = 'none';
+    panel.innerHTML = '';
+    return;
+  }
+  panel.style.display = 'block';
+  const rows = targets.slice(0, 60).map(t =>
+    '<div style="display:grid;grid-template-columns:150px 1fr 90px 76px;gap:8px;padding:6px 0;border-top:1px solid rgba(255,255,255,0.07);align-items:center">' +
+      '<strong>@' + escapeHtml(t.username) + '</strong>' +
+      '<span style="color:#94a3b8">' + escapeHtml((t.name || '') + ' - ' + t.reason) + '</span>' +
+      '<span style="text-align:right;color:#86efac">' + escapeHtml(t.via) + '</span>' +
+      '<button type="button" onclick="blacklistOneTarget(&quot;' + escapeHtml(t.username) + '&quot;)" style="background:rgba(239,68,68,0.18);color:#fecaca;border:none;border-radius:7px;padding:6px 8px;font-weight:800;cursor:pointer">Ignorer</button>' +
+    '</div>'
+  ).join('');
+  panel.innerHTML =
+    '<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">' +
+      '<strong style="color:#fff">Cibles trouvees (' + targets.length + ')</strong>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+        '<button type="button" onclick="addDiscoveredTargets()" style="background:#10b981;color:#fff;border:none;border-radius:8px;padding:8px 10px;font-weight:800;cursor:pointer">Ajouter aux cibles</button>' +
+        '<button type="button" onclick="copyFoundTargets()" style="background:rgba(255,255,255,0.1);color:#fff;border:none;border-radius:8px;padding:8px 10px;font-weight:800;cursor:pointer">Copier</button>' +
+        '<button type="button" onclick="downloadFoundTargets()" style="background:rgba(255,255,255,0.1);color:#fff;border:none;border-radius:8px;padding:8px 10px;font-weight:800;cursor:pointer">TXT</button>' +
+        '<button type="button" onclick="blacklistSelectedFoundTargets()" style="background:rgba(239,68,68,0.18);color:#fecaca;border:none;border-radius:8px;padding:8px 10px;font-weight:800;cursor:pointer">Blacklister liste</button>' +
+      '</div>' +
+    '</div>' + rows;
+}
+
+function foundTargetsText() {
+  return currentFoundTargets().map(x => x.username).filter(Boolean).join('\n');
+}
+
+async function copyFoundTargets() {
+  const txt = foundTargetsText();
+  if (!txt) return;
+  await navigator.clipboard.writeText(txt);
+  logRun('Cibles trouvees copiees.', 'ok');
+}
+
+function downloadFoundTargets() {
+  const txt = foundTargetsText();
+  if (!txt) return;
+  const blob = new Blob([txt], {type: 'text/plain'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  const d = new Date().toISOString().slice(0, 10);
+  a.download = 'cibles_trouvees_' + d + '.txt';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function blacklistSelectedFoundTargets() {
+  const usernames = currentFoundTargets().map(x => x.username).filter(Boolean);
+  if (!usernames.length) return;
+  if (!confirm('Blacklister les ' + usernames.length + ' cibles affichees ?')) return;
+  await fetch(apiUrl('/api/targets/blacklist'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({usernames, reason: 'ui'})
+  });
+  if (lastGroqDiscovery) {
+    const set = new Set(usernames.map(u => u.toLowerCase()));
+    lastGroqDiscovery.accepted = (lastGroqDiscovery.accepted || []).filter(x => !set.has((x.username || '').toLowerCase()));
+  }
+  lastDiscoveredTargets = lastDiscoveredTargets.filter(u => !usernames.map(x => x.toLowerCase()).includes(u.toLowerCase()));
+  renderFoundTargetsPanel();
+  logRun(usernames.length + ' cibles blacklistees.', 'ok');
+}
+
+async function blacklistOneTarget(username) {
+  if (!username) return;
+  await fetch(apiUrl('/api/targets/blacklist'), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({usernames: [username], reason: 'ui_single'})
+  });
+  const key = username.toLowerCase();
+  if (lastGroqDiscovery) {
+    lastGroqDiscovery.accepted = (lastGroqDiscovery.accepted || []).filter(x => (x.username || '').toLowerCase() !== key);
+  }
+  if (lastDiscoveryState) {
+    lastDiscoveryState.kept = (lastDiscoveryState.kept || []).filter(x => (x.username || '').toLowerCase() !== key);
+  }
+  lastDiscoveredTargets = lastDiscoveredTargets.filter(u => u.toLowerCase() !== key);
+  renderFoundTargetsPanel();
+  logRun('@' + username + ' ignore.', 'ok');
+}
+
+function updateDiscoveryProgress(st) {
+  const wrap = document.getElementById('discoveryProgress');
+  const text = document.getElementById('discoveryProgressText');
+  const pctEl = document.getElementById('discoveryProgressPct');
+  const bar = document.getElementById('discoveryProgressBar');
+  if (!wrap || !text || !pctEl || !bar) return;
+  wrap.style.display = 'block';
+  const kept = (st.kept || []).length;
+  const objective = Math.max(1, Number(st.max_targets || 1));
+  const scanLimit = Math.max(1, Number(st.scan_limit || 1) * Math.max(1, (st.seeds || []).length));
+  const seen = Number(st.seen || 0);
+  const byKept = kept / objective;
+  const bySeen = seen / scanLimit;
+  const pct = st.status === 'running'
+    ? Math.max(5, Math.min(95, Math.round(Math.max(byKept, bySeen) * 100)))
+    : 100;
+  const counts = st.list_counts || {};
+  const listText = 'API abonnements ' + (counts.following || 0) +
+    ' | visuel ' + (counts.following_playwright || 0) +
+    ' | abonnes ' + (counts.followers || 0);
+  const levels = st.level_counts || {};
+  const levelText = Object.keys(levels).length
+    ? ' | niveaux ' + Object.keys(levels).map(k => k + ':' + levels[k]).join(', ')
+    : '';
+  text.textContent =
+    (st.status === 'running' ? 'Recherche en cours' : 'Recherche finie') +
+    ' - ' + seen + ' profils analyses, ' + kept + '/' + objective + ' cibles - ' + listText + levelText;
+  pctEl.textContent = pct + '%';
+  bar.style.width = pct + '%';
+}
+
+function showDiscoverySummary() {
+  const box = document.getElementById('discoverySummary');
+  if (!lastDiscoveryState) {
+    box.style.display = 'block';
+    box.innerHTML = 'Aucune recherche lancee pour le moment. Mets des seeds puis clique sur <strong>Trouver des cibles</strong>.';
+    return;
+  }
+  const st = lastDiscoveryState;
+  const rejected = st.rejected || {};
+  const listCounts = st.list_counts || {};
+  const kept = st.kept || [];
+  const logs = st.logs || [];
+  const sampled = st.sampled || [];
+  const groqAccepted = lastGroqDiscovery ? (lastGroqDiscovery.accepted || []) : [];
+  const groqRejected = lastGroqDiscovery ? (lastGroqDiscovery.rejected || []) : [];
+  const levelCounts = st.level_counts || {};
+  const levelSummary = Object.keys(levelCounts).length
+    ? Object.keys(levelCounts).map(k => 'niveau ' + k + ' : ' + levelCounts[k]).join(', ')
+    : 'aucun';
+  const sampledLines = sampled.slice(0, 30).map(item => {
+    const icon = item.status === 'kept' ? 'OK' : 'REFUSE';
+    return icon + ' @' + (item.username || '-') +
+      (item.name ? ' - ' + item.name : '') +
+      ' (' + (item.reason || '-') + ', ' + (item.source_list || '-') + ')';
+  });
+  const rejectedTotal = Object.values(rejected).reduce((sum, value) => sum + (Number(value) || 0), 0);
+  const seeds = (st.seeds || []).map(s => '@' + s).join(', ');
+  const noFollowing = (listCounts.following || 0) === 0 && (listCounts.following_playwright || 0) === 0 && (st.seen || 0) === 0;
+  const isRunning = st.status === 'running';
+  const lines = [
+    '<strong>Resume de la derniere recherche</strong>',
+    'Statut : ' + (isRunning ? 'en cours' : (st.status || '-')),
+    'Seeds utilises : ' + escapeHtml(seeds || '-'),
+    'Objectif : trouver ' + (st.max_targets || 0) + ' cibles femmes US, max ' + Number(st.max_followers || 0).toLocaleString('fr-FR') + ' followers.',
+    'Profondeur : ' + (st.depth || 1) + ' | abonnements par profil : ' + (st.per_profile_limit || '-') + ' | limite globale : ' + (st.max_explore || '-'),
+    'Profils analyses : ' + (st.seen || 0),
+    'Niveaux analyses : ' + levelSummary,
+    'Listes scannees : abonnements API ' + (listCounts.following || 0) +
+      ', abonnements visuels ' + (listCounts.following_playwright || 0) +
+      ', abonnes ' + (listCounts.followers || 0) + '.',
+    'Cibles gardees : ' + kept.length,
+    'Profils rejetes : ' + rejectedTotal,
+    'Details rejets : hors US ' + (rejected.not_us || 0) +
+      ', aucun signal anglais ' + (rejected.no_us_signal || 0) +
+      ', pas femme ' + (rejected.not_female || 0) +
+      ', pas creatrice ' + (rejected.not_creator || 0) +
+      ', plus de ' + Number(st.max_followers || 0).toLocaleString('fr-FR') + ' followers ' + (rejected.followers || 0) +
+      ', doublons ' + (rejected.duplicate || 0) +
+      ', deja decouvertes ' + (rejected.already_discovered || 0) +
+      ', blacklist ' + (rejected.blacklisted || 0) +
+      ', comptes proteges ' + (rejected.protected || 0) +
+      ', listes seed non chargees ' + (rejected.empty_lists || 0) +
+      ', erreurs ' + (rejected.errors || 0) + '.',
+    isRunning
+      ? 'Action conseillee : attends la fin du scan Playwright, puis reclique sur Resume recherche.'
+      : noFollowing
+      ? 'Action conseillee : aucun abonnement exploitable recupere pour ce seed. Essaie un seed qui suit plus de comptes, ou un autre compte public.'
+      : kept.length
+      ? 'Action conseillee : clique sur <strong>Ajouter aux cibles</strong>, puis lance Production hommes.'
+      : 'Action conseillee : augmente Profils a analyser ou ajoute de meilleurs seeds avec des abonnements US.',
+    logs.length ? '<strong>Logs</strong>' : '',
+    ...logs.slice(-6).map(line => escapeHtml(line)),
+    lastGroqDiscovery ? '<strong>Analyse Groq</strong>' : '',
+    lastGroqDiscovery ? ('OK Groq : ' + groqAccepted.length + ' | rejetes Groq : ' + groqRejected.length) : '',
+    ...groqAccepted.slice(0, 30).map(p => escapeHtml('OK @' + p.username + (p.name ? ' - ' + p.name : '') + ' (' + (p.reason || 'ok') + ')')),
+    sampledLines.length ? '<strong>Profils analyses</strong>' : '',
+    ...sampledLines.map(line => escapeHtml(line))
+  ];
+  box.style.display = 'block';
+  box.innerHTML = lines.map(line => '<div>' + line + '</div>').join('');
+}
+
+function addDiscoveredTargets() {
+  const source = lastGroqDiscovery && lastGroqDiscovery.accepted && lastGroqDiscovery.accepted.length
+    ? lastGroqDiscovery.accepted.map(x => x.username)
+    : lastDiscoveredTargets;
+  if (!source.length) return;
+  const targetBox = document.getElementById('targets');
+  const current = targetBox.value.split('\n').map(s => s.trim()).filter(Boolean);
+  const existing = new Set(current.map(s => s.replace(/^@/, '').toLowerCase()));
+  const added = [];
+  for (const t of source) {
+    const key = t.replace(/^@/, '').toLowerCase();
+    if (!existing.has(key)) {
+      existing.add(key);
+      added.push(t);
+    }
+  }
+  targetBox.value = current.concat(added).join('\n');
+  if (added.length) {
+    fetch(apiUrl('/api/targets/mark-used'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({usernames: added, reason: 'added_to_targets'})
+    }).catch(() => {});
+  }
+  debouncedAnalyze();
+  renderFoundTargetsPanel();
+  logRun(added.length + ' cibles ajoutees automatiquement.', 'ok');
+}
+
+function discoveryProfilesForGroq() {
+  if (!lastDiscoveryState) return [];
+  const byUser = new Map();
+  for (const item of (lastDiscoveryState.sampled || [])) {
+    if (!item.username) continue;
+    byUser.set(item.username.toLowerCase(), {
+      username: item.username,
+      name: item.name || '',
+      source_list: item.source_list || '',
+      heuristic_status: item.status || '',
+      heuristic_reason: item.reason || ''
+    });
+  }
+  for (const item of (lastDiscoveryState.kept || [])) {
+    if (!item.username) continue;
+    const current = byUser.get(item.username.toLowerCase()) || {};
+    byUser.set(item.username.toLowerCase(), {
+      ...current,
+      username: item.username,
+      name: item.name || current.name || '',
+      bio: item.bio || '',
+      followers: item.followers || 0,
+      source_list: item.source_list || current.source_list || '',
+      heuristic_status: 'kept',
+      heuristic_reason: 'gardee'
+    });
+  }
+  return Array.from(byUser.values()).slice(0, 200);
+}
+
+async function analyzeDiscoveryGroq() {
+  if (!lastDiscoveryState) { alert('Lance une recherche de cibles avant Groq.'); return; }
+  if (getGroqKeysQ().length === 0) {
+    if (!askGroqKeysQ()) return;
+  }
+  const profiles = discoveryProfilesForGroq();
+  if (!profiles.length) { alert('Aucun profil a analyser.'); return; }
+
+  const box = document.getElementById('discoveryResult');
+  box.innerHTML = 'Analyse Groq en cours sur ' + profiles.length + ' profils...';
+  lastGroqDiscovery = null;
+
+  const accepted = [];
+  const rejected = [];
+  const BATCH = 40;
+  const minScore = parseInt(document.getElementById('discoveryGroqMinScore')?.value) || 75;
+
+  for (let start = 0; start < profiles.length; start += BATCH) {
+    const batch = profiles.slice(start, start + BATCH).map((p, i) => ({
+      i,
+      username: p.username,
+      name: p.name || '',
+      bio: p.bio || '',
+      heuristic: (p.heuristic_status || '') + ':' + (p.heuristic_reason || '')
+    }));
+    const prompt =
+      'Tu classes des profils X/Twitter pour trouver des creatrices femmes anglophones. ' +
+      'Accepte si le profil semble etre une femme/creatrice/persona feminine anglophone. ' +
+      'Rejette comptes sport, marques, hommes, comptes non personnels, ou incertain fort. ' +
+      'Donne score 0-100. Reponds seulement JSON {"r":[{"i":0,"ok":true,"score":90,"reason":"court"}]}. Profils:\\n' +
+      JSON.stringify(batch);
+    const key = nextGroqKeyQ();
+    if (!key) break;
+    const resp = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key},
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{role: 'user', content: prompt}],
+        response_format: {type: 'json_object'},
+        temperature: 0
+      })
+    }).then(r => r.json()).catch(() => null);
+    if (!resp || resp.error) {
+      rejected.push(...batch.map(x => ({...profiles[start + x.i], reason: resp?.error?.message || 'erreur Groq'})));
+      continue;
+    }
+    let parsed;
+    try { parsed = JSON.parse(resp.choices[0].message.content); } catch { parsed = {r: []}; }
+    const decisions = new Map((parsed.r || []).map(r => [Number(r.i), r]));
+    for (let i = 0; i < batch.length; i++) {
+      const profile = profiles[start + i];
+      const d = decisions.get(i);
+      const score = Number(d?.score || 0);
+      if (d && d.ok === true && score >= minScore) accepted.push({...profile, score, reason: d.reason || 'ok Groq'});
+      else rejected.push({...profile, score, reason: (d && d.reason) || (score < minScore ? 'score trop bas' : 'rejete Groq')});
+    }
+    box.innerHTML = 'Analyse Groq : ' + Math.min(start + BATCH, profiles.length) + ' / ' + profiles.length;
+  }
+
+  lastGroqDiscovery = {accepted, rejected};
+  lastDiscoveredTargets = accepted.map(x => x.username);
+  renderDiscoveryGroqResult();
+  renderFoundTargetsPanel();
+}
+
+function renderDiscoveryGroqResult() {
+  const box = document.getElementById('discoveryResult');
+  if (!lastGroqDiscovery) return;
+  const accepted = lastGroqDiscovery.accepted || [];
+  const rejected = lastGroqDiscovery.rejected || [];
+  const rows = accepted.slice(0, 50).map(p =>
+    '<div style="padding:7px 0;border-top:1px solid rgba(255,255,255,0.07);display:grid;grid-template-columns:150px 1fr;gap:8px">' +
+    '<strong>@' + escapeHtml(p.username) + '</strong>' +
+    '<span style="color:#94a3b8">' + escapeHtml((p.name || '') + ' - ' + (p.score || 0) + '/100 - ' + (p.reason || 'ok')) + '</span>' +
+    '</div>'
+  ).join('');
+  box.innerHTML =
+    '<div><strong>Groq valide ' + accepted.length + ' cibles</strong> | rejete ' + rejected.length + '</div>' +
+    rows +
+    (accepted.length ? '<button type="button" onclick="addDiscoveredTargets()" style="margin-top:10px;background:#10b981;color:#fff;border:none;border-radius:8px;padding:9px 12px;font-weight:800;cursor:pointer">Ajouter les cibles Groq</button>' : '');
+}
+
+async function pollObjectiveMen(jobId) {
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));
+    const st = await fetch(apiUrl('/api/objective-men/' + jobId)).then(r => r.json());
+    renderObjectiveMen(st);
+    if (st.status !== 'running') break;
+  }
+}
+
+function renderObjectiveMen(st) {
+  document.getElementById('sTargets').textContent = (st.men || []).length + '/' + st.objective_men;
+  document.getElementById('sScraped').textContent = st.profiles_seen || 0;
+  document.getElementById('sValidated').textContent = (st.men || []).length;
+  const pct = st.objective_men > 0 ? Math.min(100, Math.round(((st.men || []).length / st.objective_men) * 100)) : 0;
+  document.getElementById('globalBar').style.width = pct + '%';
+  document.getElementById('globalPct').textContent =
+    'Objectif hommes : ' + (st.men || []).length + ' / ' + st.objective_men +
+    ' | profils vus : ' + (st.profiles_seen || 0) + ' / ' + st.max_profiles +
+    ' | verifies : ' + (st.verified || 0);
+
+  const list = document.getElementById('targetsList');
+  while (list.firstChild) list.removeChild(list.firstChild);
+  const row = document.createElement('div');
+  row.className = 'target-row';
+  const account = st.current_account ? '@' + st.current_account : '-';
+  const target = st.current_target ? '@' + st.current_target : '-';
+  row.innerHTML =
+    '<div class="target-name">' + target + '</div>' +
+    '<div class="target-status">' + st.status + '</div>' +
+    '<div>Compte : ' + account + '</div>' +
+    '<div style="color:#34d399">Hommes ' + (st.men || []).length +
+    ' | femmes ' + (st.women || 0) +
+    ' | inconnus ' + (st.unknown || 0) +
+    ' | deja vus ' + (st.duplicates || 0) +
+    ' | fermes ' + (st.closed || 0) +
+    ' | blocages ' + (st.blocked || 0) + '</div>';
+  list.appendChild(row);
+
+  if (st.status !== 'running' || (st.men || []).length > 0) {
+    document.getElementById('resultCard').style.display = 'block';
+    const men = st.men || [];
+    document.getElementById('resultSub').textContent =
+      men.length + ' hommes exportables | ' + (st.profiles_seen || 0) +
+      ' profils vus | femmes ' + (st.women || 0) +
+      ' | non classes ' + (st.unknown || 0) +
+      ' | deja vus ' + (st.duplicates || 0);
+    document.getElementById('nbMales').textContent = men.length;
+    document.getElementById('nbFemales').textContent = 0;
+    document.getElementById('nbUnknowns').textContent = 0;
+    document.getElementById('resultMales').value = men.join('\n');
+    document.getElementById('resultFemales').value = '';
+    document.getElementById('resultUnknowns').value = '';
+    document.getElementById('resultList').value = men.join('\n');
+  }
+}
+
+async function calibrateYield() {
+  const form = readQueueForm();
+  if (!form) return;
+  const sampleSize = parseInt(document.getElementById('calibrationSize').value) || 1000;
+  const targets = form.targets;
+  const perTarget = Math.max(1, Math.ceil(sampleSize / targets.length));
+  const estimated = perTarget * targets.length;
+  const msg = 'Calibration reelle : scraper environ ' + estimated.toLocaleString('fr-FR') + ' profils (' + perTarget.toLocaleString('fr-FR') + ' max par cible), puis calculer DM ouverts / profils scrapes. Continuer ?';
+  if (!confirm(msg)) {
+    logRun('Calibration annulee.', 'warn');
+    return;
+  }
+
+  const payload = {targets, cookies: form.cookies, max_per_target: perTarget, parallel: 1};
+  logRun('Calibration lancee sur environ ' + estimated.toLocaleString('fr-FR') + ' profils...', 'warn');
+
+  let resp;
+  try {
+    const httpResp = await fetch(apiUrl('/api/queue/start'), {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    resp = await httpResp.json();
+  } catch (err) {
+    logRun('Calibration impossible : ' + err.message, 'error');
+    alert('Calibration impossible : ' + err.message);
+    return;
+  }
+
+  if (!resp.queue_id) {
+    logRun('Calibration refusee : ' + (resp.detail || '?'), 'error');
+    alert('Calibration refusee : ' + (resp.detail || '?'));
+    return;
+  }
+
+  const qid = resp.queue_id;
+  document.getElementById('progressCard').style.display = 'block';
+  document.getElementById('poolCard').style.display = 'block';
+  logRun('Calibration queue : ' + qid + '.', 'ok');
+
+  while (true) {
+    await new Promise(r => setTimeout(r, 2000));
+    const st = await fetch(apiUrl('/api/queue/' + qid)).then(r => r.json());
+    renderProgress(st);
+    const entries = Object.values(st.targets || {});
+    const scraped = entries.reduce((sum, t) => sum + (t.scraped || 0), 0);
+    const dmFound = st.total_dm_found || entries.reduce((sum, t) => sum + (t.dm_found || 0), 0);
+    logRun('Calibration en cours : ' + scraped.toLocaleString('fr-FR') + ' scrapes, ' + dmFound.toLocaleString('fr-FR') + ' DM.', 'info');
+    if (st.status === 'completed') {
+      if (scraped > 0) {
+        const rate = Math.round((dmFound / scraped) * 100);
+        document.getElementById('yieldRate').value = Math.max(1, Math.min(100, rate));
+        refreshEstimates();
+        logRun('Calibration terminee : ' + dmFound.toLocaleString('fr-FR') + ' DM / ' + scraped.toLocaleString('fr-FR') + ' profils = ' + rate + '%. Taux mis a jour.', 'ok');
+        alert('Calibration terminee : taux reel mesure = ' + rate + '%');
+      } else {
+        logRun('Calibration terminee sans profil scrape.', 'error');
+      }
+      break;
+    }
+  }
+}
+
 async function pollPool() {
   while (currentQid) {
     try {
-      const p = await fetch('/api/pool/status').then(r => r.json());
+      const p = await fetch(apiUrl('/api/pool/status')).then(r => r.json());
       renderPool(p);
     } catch {}
     await new Promise(r => setTimeout(r, 800));
@@ -568,10 +1608,15 @@ function renderPool(p) {
 async function pollQueue() {
   while (true) {
     await new Promise(r => setTimeout(r, 2000));
-    const st = await fetch('/api/queue/' + currentQid).then(r => r.json());
+    const st = await fetch(apiUrl('/api/queue/' + currentQid)).then(r => r.json());
     renderProgress(st);
     // Affiche les resultats en live aussi (pas que a la fin)
-    if ((st.validated_males && st.validated_males.length) || (st.validated_females && st.validated_females.length)) {
+    if (
+      st.status === 'completed' ||
+      (st.validated_males && st.validated_males.length) ||
+      (st.validated_females && st.validated_females.length) ||
+      (st.validated_unknowns && st.validated_unknowns.length)
+    ) {
       renderResult(st);
     }
     if (st.status === 'completed') break;
@@ -580,9 +1625,15 @@ async function pollQueue() {
 
 function renderProgress(st) {
   const entries = Object.entries(st.targets);
-  const done = entries.filter(([_, v]) => v.status === 'done').length;
+  const done = entries.filter(([_, v]) => v.status === 'done' || v.status === 'partial').length;
   const totalScraped = entries.reduce((s, [_, v]) => s + v.scraped, 0);
   const totalDmFound = entries.reduce((s, [_, v]) => s + (v.dm_found || 0), 0);
+  const requestedTotal = entries.reduce((s, [_, v]) => s + (v.requested_max || v.candidates || v.scraped || 0), 0);
+  const progressKey = entries.map(([name, data]) => name + ':' + data.status + ':' + data.scraped + ':' + (data.dm_found || 0)).join('|');
+  if (currentQid && lastProgressLog[currentQid] !== progressKey) {
+    lastProgressLog[currentQid] = progressKey;
+    logRun('Progression : ' + totalScraped + '/' + requestedTotal + ' profils scrapes, ' + totalDmFound + ' DM trouves.', 'info');
+  }
 
   document.getElementById('sTargets').textContent = done + '/' + entries.length;
   document.getElementById('sScraped').textContent = totalScraped;
@@ -601,22 +1652,31 @@ function renderProgress(st) {
     const n = document.createElement('div'); n.className = 'target-name'; n.textContent = '@' + name;
     const s = document.createElement('div'); s.className = 'target-status s-' + data.status; s.textContent = data.status;
     const sc = document.createElement('div');
+    const requested = data.requested_max || data.candidates || data.scraped || 0;
+    const scrapePct = requested > 0 ? Math.min(100, Math.round((data.scraped / requested) * 100)) : 0;
     if (data.status === 'validating' && data.candidates) {
-      sc.textContent = 'Check: ' + data.checked + '/' + data.candidates;
+      sc.textContent = 'Scrape: ' + data.scraped + '/' + requested + ' (' + scrapePct + '%)';
     } else if (data.status === 'scraping') {
-      sc.textContent = 'Scrape: ' + data.scraped;
+      sc.textContent = 'Scrape: ' + data.scraped + '/' + requested + ' (' + scrapePct + '%)';
     } else if (data.status === 'done') {
-      sc.textContent = '✓ ' + data.checked + '/' + data.candidates;
+      sc.textContent = 'Fini: ' + data.scraped + '/' + requested + ' (100%)';
+    } else if (data.status === 'partial') {
+      sc.textContent = 'Partiel: ' + data.scraped + '/' + requested + ' (' + scrapePct + '%)';
     } else {
-      sc.textContent = 'Scrapés: ' + data.scraped;
+      sc.textContent = 'Scrape: ' + data.scraped + '/' + requested + ' (' + scrapePct + '%)';
     }
     const v = document.createElement('div');
     const diag = [];
     if (data.dm_found !== undefined) diag.push('DM trouves ' + data.dm_found);
+    if (data.dm_source === 'estimated_v1') diag.push('can_dm estime v1.1');
+    if (data.dm_source === 'certified') diag.push('can_dm certifie');
+    if (data.certified_checked) diag.push('verifies ' + data.certified_checked);
+    if (data.certification_blocked) diag.push('verif bloquees ' + data.certification_blocked);
     if (data.duplicate_dm) diag.push('deja vus DM ' + data.duplicate_dm);
     if (data.dm_closed) diag.push('fermes ' + data.dm_closed);
     if (data.duplicates) diag.push('doublons total ' + data.duplicates);
     if (data.missing_username) diag.push('sans username ' + data.missing_username);
+    if (data.graphql_stop_reason) diag.push('GraphQL: ' + data.graphql_stop_reason);
     if (data.last_error) diag.push('err: ' + data.last_error);
     v.textContent = 'DM ' + (data.dm_found || 0) + ' | nouveaux ' + data.validated + (diag.length ? ' | ' + diag.join(' | ') : '');
     v.style.color = '#34d399';
@@ -625,10 +1685,10 @@ function renderProgress(st) {
     list.appendChild(row);
   }
 
-  // Barre de progression globale basee sur validations verifiees
-  const pct = totalCandidates > 0 ? Math.round((totalChecked / totalCandidates) * 100) : 0;
+  // Barre de progression globale basee sur la limite demandee
+  const pct = requestedTotal > 0 ? Math.min(100, Math.round((totalScraped / requestedTotal) * 100)) : 0;
   document.getElementById('globalBar').style.width = pct + '%';
-  document.getElementById('globalPct').textContent = 'Progression : ' + totalChecked + ' / ' + totalCandidates + ' (' + pct + '%)';
+  document.getElementById('globalPct').textContent = 'Progression scrape : ' + totalScraped + ' / ' + requestedTotal + ' profils (' + pct + '%) | DM trouves : ' + totalDmFound;
 }
 
 let _autoGroqTriggered = false;
@@ -636,17 +1696,34 @@ function renderResult(st) {
   document.getElementById('resultCard').style.display = 'block';
   const males = st.validated_males || [];
   const females = st.validated_females || [];
+  const unknowns = st.validated_unknowns || [];
+  const duplicateMales = st.duplicate_males || [];
+  const duplicateFemales = st.duplicate_females || [];
+  const duplicateUnknowns = st.duplicate_unknowns || [];
   const totalDmFound = st.total_dm_found || 0;
   const duplicateDm = st.total_duplicate_dm || 0;
+  const targetStates = Object.values(st.targets || {});
+  const totalScraped = targetStates.reduce((sum, t) => sum + (t.scraped || 0), 0);
+  const totalRequested = targetStates.reduce((sum, t) => sum + (t.requested_max || t.scraped || 0), 0);
   document.getElementById('resultSub').textContent =
     st.total_validated + ' nouveaux exportables sur ' + totalDmFound +
-    ' DM trouves (' + duplicateDm + ' deja dans l historique) - ' +
-    males.length + ' hommes + ' + females.length + ' femmes';
+    ' DM trouves, ' + totalScraped + '/' + totalRequested + ' profils scrapes (' + duplicateDm + ' deja dans l historique) - ' +
+    males.length + ' hommes + ' + females.length + ' femmes' +
+    (unknowns.length ? ' (' + unknowns.length + ' non classes masques)' : '');
+  if (st.total_validated === 0 && duplicateDm > 0) {
+    document.getElementById('resultSub').textContent =
+      '0 nouveau exportable : les ' + duplicateDm +
+      ' DM certifies trouves sont deja dans l historique anti-doublon - deja vus : ' +
+      duplicateMales.length + ' hommes + ' + duplicateFemales.length + ' femmes' +
+      (duplicateUnknowns.length ? ' (' + duplicateUnknowns.length + ' non classes masques).' : '.');
+  }
   document.getElementById('nbMales').textContent = males.length;
   document.getElementById('nbFemales').textContent = females.length;
+  document.getElementById('nbUnknowns').textContent = unknowns.length;
   document.getElementById('resultMales').value = males.join('\n');
   document.getElementById('resultFemales').value = females.join('\n');
-  document.getElementById('resultList').value = (st.all_validated || []).join('\n');
+  document.getElementById('resultUnknowns').value = unknowns.join('\n');
+  document.getElementById('resultList').value = males.join('\n');
 
   // Auto-lance Groq si keys dispo + queue terminee + pas deja fait
   if (!_autoGroqTriggered && st.status === 'completed' && getGroqKeysQ().length > 0 && (males.length + females.length) > 0) {
@@ -781,7 +1858,7 @@ async function refilterGroq() {
     if (!askGroqKeysQ()) return;
   }
 
-  const st = await fetch('/api/queue/' + currentQid).then(r => r.json());
+  const st = await fetch(apiUrl('/api/queue/' + currentQid)).then(r => r.json());
   const data = st.all_with_name || [];
   if (data.length === 0) { alert('Pas de données à re-filtrer'); return; }
 
@@ -845,6 +1922,7 @@ async function refilterGroq() {
     const oldFemales = parseInt(document.getElementById('nbFemales').textContent) || 0;
     document.getElementById('resultMales').value = males.join('\n');
     document.getElementById('resultFemales').value = females.join('\n');
+    document.getElementById('resultList').value = males.join('\n');
     document.getElementById('resultSub').textContent = 'Re-filtré Groq IA : ' + males.length + ' hommes + ' + females.length + ' femmes';
     animateNumber('nbMales', oldMales, males.length);
     animateNumber('nbFemales', oldFemales, females.length);
@@ -885,10 +1963,24 @@ function copyFemales() {
   const t = document.getElementById('resultFemales').value;
   navigator.clipboard.writeText(t).then(() => alert('👩 Femmes copiées'));
 }
+function copyUnknowns() {
+  const t = document.getElementById('resultUnknowns').value;
+  navigator.clipboard.writeText(t).then(() => alert('Inconnus copiés'));
+}
 
 function downloadResult() {
-  window.open('/api/queue/' + currentQid + '/download', '_blank');
+  const t = document.getElementById('resultList').value;
+  const blob = new Blob([t], {type: 'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'hommes_can_dm.txt';
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  a.remove();
 }
 </script>
 </body>
 </html>
+
+

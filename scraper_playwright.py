@@ -90,6 +90,16 @@ class TwitterPlaywrightScraper:
 
         print("[PLAYWRIGHT] Navigateur prêt!")
 
+    async def _dismiss_cookie_banner(self):
+        try:
+            button = self.page.get_by_role("button", name="Accept all cookies")
+            if await button.count():
+                await button.first.click(timeout=3000)
+                await asyncio.sleep(1)
+                print("[PLAYWRIGHT] Cookie banner acceptee")
+        except Exception:
+            pass
+
     async def _handle_response(self, response: Response):
         """Intercepte les réponses GraphQL pour capturer les données utilisateurs."""
         if not self.is_capturing:
@@ -333,6 +343,7 @@ class TwitterPlaywrightScraper:
         # Aller sur la page followers/following
         url = f"https://x.com/{username}/{list_type}"
         await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await self._dismiss_cookie_banner()
 
         # Attendre que la liste se charge
         try:
@@ -346,6 +357,7 @@ class TwitterPlaywrightScraper:
         no_new_users_count = 0
         scroll_attempts = 0
         max_scroll_attempts = 500  # Plus de tentatives
+        recovery_attempts = 0
 
         while scroll_attempts < max_scroll_attempts:
             # Vérifier rate limit
@@ -385,6 +397,19 @@ class TwitterPlaywrightScraper:
             if len(yielded_ids) == last_count:
                 no_new_users_count += 1
                 if no_new_users_count >= 20:  # Plus de patience
+                    if max_records and len(yielded_ids) < max_records and recovery_attempts < 2:
+                        recovery_attempts += 1
+                        print(
+                            f"[PLAYWRIGHT] Stagne a {len(yielded_ids)}/{max_records}, "
+                            f"recovery #{recovery_attempts}",
+                            flush=True,
+                        )
+                        no_new_users_count = 0
+                        await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                        await asyncio.sleep(4)
+                        await self.page.mouse.wheel(0, 7000)
+                        await asyncio.sleep(3)
+                        continue
                     print("[PLAYWRIGHT] Plus de nouveaux utilisateurs, fin du scraping")
                     break
             else:
@@ -393,7 +418,37 @@ class TwitterPlaywrightScraper:
 
             scroll_attempts += 1
 
-            # === SCROLL AGRESSIF ===
+            # Scroll progressif: X charge souvent la suite seulement quand le
+            # dernier item visible passe proprement dans le viewport.
+            try:
+                last_cell = self.page.locator('[data-testid="cellInnerDiv"]').last()
+                await last_cell.scroll_into_view_if_needed(timeout=3000)
+                await last_cell.hover(timeout=3000)
+            except Exception:
+                pass
+
+            response_wait = None
+            try:
+                response_wait = self.page.wait_for_response(
+                    lambda r: "/graphql/" in r.url and ("Followers" in r.url or "Following" in r.url),
+                    timeout=8000,
+                )
+                for _ in range(5):
+                    await self.page.mouse.wheel(0, random.randint(700, 1200))
+                    await asyncio.sleep(random.uniform(0.25, 0.55))
+                await response_wait
+            except Exception:
+                if response_wait:
+                    try:
+                        await response_wait
+                    except Exception:
+                        pass
+                await self.page.keyboard.press("PageDown")
+                await asyncio.sleep(random.uniform(0.8, 1.4))
+
+            if scroll_attempts % 10 == 0:
+                print(f"[PLAYWRIGHT] Scroll #{scroll_attempts} - Total: {len(yielded_ids)} users")
+            continue
 
             # 1. Scroll via JavaScript
             await self.page.evaluate("""
@@ -440,6 +495,94 @@ class TwitterPlaywrightScraper:
 
         self.is_capturing = False
         print(f"[PLAYWRIGHT] Scraping terminé: {len(yielded_ids)} utilisateurs")
+
+    async def scrape_visible_profiles_dom(
+        self,
+        username: str,
+        list_type: str = "following",
+        max_records: Optional[int] = None,
+    ) -> list:
+        """
+        Fallback visuel: lit les profils visibles dans /following ou /followers.
+        Utile quand l'API v1.1 retourne 0 alors que la page X affiche une petite liste.
+        """
+        url = f"https://x.com/{username}/{list_type}"
+        await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await self._dismiss_cookie_banner()
+        try:
+            await self.page.wait_for_selector('[data-testid="cellInnerDiv"]', timeout=15000)
+        except Exception:
+            print("[PLAYWRIGHT DOM] Liste non visible")
+            return []
+
+        limit = max_records or 50
+        results = []
+        seen = set()
+        stable_rounds = 0
+
+        while len(results) < limit and stable_rounds < 4:
+            before = len(results)
+            users = await self.page.evaluate(
+                """() => {
+                    const reserved = new Set([
+                        'home','explore','notifications','messages','i','settings',
+                        'compose','search','login','signup','tos','privacy'
+                    ]);
+                    const rows = Array.from(document.querySelectorAll('[data-testid="cellInnerDiv"]'));
+                    const out = [];
+                    for (const row of rows) {
+                        const links = Array.from(row.querySelectorAll('a[href^="/"]'));
+                        let username = "";
+                        for (const a of links) {
+                            const href = a.getAttribute('href') || '';
+                            const match = href.match(/^\\/([^/?#]+)$/);
+                            if (!match) continue;
+                            const candidate = decodeURIComponent(match[1]);
+                            if (reserved.has(candidate.toLowerCase())) continue;
+                            username = candidate;
+                            break;
+                        }
+                        if (!username) continue;
+                        const text = (row.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+                        const atIndex = text.findIndex(s => s.toLowerCase() === '@' + username.toLowerCase());
+                        const name = atIndex > 0 ? text[atIndex - 1] : (text[0] || '');
+                        const bio = text.filter(s =>
+                            s && s !== name && s.toLowerCase() !== '@' + username.toLowerCase() &&
+                            !['follow', 'following', 'follows you'].includes(s.toLowerCase())
+                        ).join(' ');
+                        out.push({username, name, bio});
+                    }
+                    return out;
+                }"""
+            )
+
+            for user in users:
+                key = (user.get("username") or "").lower()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                results.append({
+                    "id": key,
+                    "username": user.get("username"),
+                    "name": user.get("name") or "",
+                    "bio": user.get("bio") or "",
+                    "followers_count": 0,
+                    "following_count": 0,
+                    "protected": False,
+                    "location": "",
+                    "source": "playwright_dom",
+                })
+                if len(results) >= limit:
+                    break
+
+            stable_rounds = stable_rounds + 1 if len(results) == before else 0
+            if len(results) >= limit:
+                break
+            await self.page.mouse.wheel(0, 900)
+            await asyncio.sleep(1)
+
+        print(f"[PLAYWRIGHT DOM] {len(results)} profils visibles recuperes")
+        return results
 
     async def close(self):
         """Ferme le navigateur."""

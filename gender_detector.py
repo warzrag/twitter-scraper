@@ -10,7 +10,7 @@ MALE_NAMES = {
     'adam', 'adrien', 'alexandre', 'alexis', 'antoine', 'arthur', 'baptiste', 'benjamin',
     'bruno', 'charles', 'christophe', 'clément', 'damien', 'david', 'denis', 'dimitri',
     'edouard', 'emmanuel', 'eric', 'etienne', 'fabien', 'florian', 'francois', 'frederic',
-    'gabriel', 'guillaume', 'hugo', 'jacques', 'jean', 'jerome', 'julien', 'kevin',
+    'gabriel', 'guillaume', 'hugo', 'jacques', 'jean', 'jerome', 'julien', 'julian', 'kevin',
     'laurent', 'leo', 'louis', 'lucas', 'marc', 'mathieu', 'maxime', 'michel',
     'nathan', 'nicolas', 'olivier', 'patrick', 'paul', 'philippe', 'pierre', 'quentin',
     'raphael', 'remi', 'romain', 'sebastien', 'simon', 'stephane', 'sylvain', 'theo',
@@ -64,6 +64,7 @@ FEMALE_NAMES = {
     # Français
     'alice', 'amelie', 'anna', 'anne', 'audrey', 'aurelie', 'brigitte', 'camille',
     'caroline', 'catherine', 'cecile', 'charlotte', 'chloe', 'christine', 'claire',
+    'becky',
     'clementine', 'delphine', 'diane', 'elise', 'emilie', 'emma', 'estelle', 'eva',
     'florence', 'francoise', 'gabrielle', 'helene', 'isabelle', 'jeanne', 'julie',
     'juliette', 'laetitia', 'laura', 'laurence', 'lea', 'louise', 'lucie', 'madeleine',
@@ -73,7 +74,7 @@ FEMALE_NAMES = {
 
     # Anglais
     'abigail', 'alexandra', 'alexis', 'allison', 'amanda', 'amber', 'amy', 'andrea',
-    'angela', 'ann', 'anna', 'ashley', 'barbara', 'betty', 'beverly', 'brenda',
+    'angela', 'ann', 'anna', 'ava', 'ashley', 'barbara', 'betty', 'beverly', 'brenda',
     'brittany', 'brooke', 'carol', 'carolyn', 'catherine', 'cheryl', 'christina',
     'christine', 'cindy', 'claire', 'crystal', 'cynthia', 'dana', 'danielle', 'deborah',
     'debra', 'denise', 'diana', 'diane', 'donna', 'dorothy', 'elizabeth', 'ellen',
@@ -131,6 +132,8 @@ FEMALE_KEYWORDS = {
     'jazzy', 'angie', 'brina', 'lucy', 'elle', 'brooke', 'mell',
     'chica', 'reina', 'princesa', 'bella', 'bonita', 'linda', 'hermosa',
     'femme', 'fille', 'jolie', 'belle', 'mademoiselle', 'madame',
+    'gurl', 'gyal', 'shawty', 'slut', 'milf', 'camgirl', 'egirl', 'baddie',
+    'doll', 'dollface', 'babygirl', 'sexygirl', 'sexyy', 'mami', 'mommy',
 }
 
 # Mots-clés masculins dans le nom/pseudo
@@ -140,6 +143,7 @@ MALE_KEYWORDS = {
     'dude', 'chief', 'boss', 'alpha', 'gangsta', 'thug',
     'hombre', 'rey', 'principe', 'senor',
     'homme', 'monsieur', 'garcon', 'mec', 'gars',
+    'bigdick', 'bull', 'stud',
 }
 
 # Table de conversion des caractères unicode stylisés vers ASCII
@@ -217,6 +221,17 @@ def detect_gender(name: str) -> str:
     if clean_name in FEMALE_NAMES:
         return 'female'
 
+    # Handles type ElisabethJ554, bigbecky544330, Mia01_1: chercher un prénom
+    # directement dans la partie alphabétique quand le premier token complet ne matche pas.
+    alpha_only = ''.join(c for c in name_lower if c.isalpha())
+    if len(alpha_only) >= 4:
+        for female_name in FEMALE_NAMES:
+            if len(female_name) >= 4 and female_name in alpha_only:
+                return 'female'
+        for male_name in MALE_NAMES:
+            if len(male_name) >= 4 and male_name in alpha_only:
+                return 'male'
+
     # Vérifier les suffixes
     for suffix in FEMALE_SUFFIXES:
         if clean_name.endswith(suffix) and len(clean_name) > len(suffix) + 1:
@@ -236,6 +251,72 @@ def detect_gender(name: str) -> str:
         return 'male'
 
     return 'unknown'
+
+
+def detect_gender_confident(name: str = "", username: str = "", bio: str = "") -> tuple[str, int, list]:
+    """
+    Detection plus stricte pour la production.
+    Retourne (genre, score, raisons). Un homme n'est exporte que si score >= 2.
+    """
+    text = normalize_unicode(f"{name} {username} {bio}".lower())
+    compact = ''.join(c if c.isalnum() else ' ' for c in text)
+    tokens = [t for t in compact.split() if t]
+    alpha = ''.join(c for c in text if c.isalpha())
+
+    male_score = 0
+    female_score = 0
+    reasons = []
+
+    male_strong = {
+        "male", "man", "men", "boy", "guy", "gentleman", "sir", "mr",
+        "bro", "brother", "dad", "father", "husband", "king", "prince",
+        "daddy", "bull", "stud", "bigdick"
+    }
+    female_strong = {
+        "female", "woman", "women", "girl", "lady", "queen", "princess",
+        "miss", "mrs", "mom", "mother", "wife", "wifey", "she", "her",
+        "goddess", "diva", "babygirl", "camgirl", "egirl", "slut", "milf",
+        "mami", "mommy", "gurl", "gyal"
+    }
+
+    for t in tokens:
+        if t in male_strong:
+            male_score += 3
+            reasons.append(f"male_kw:{t}")
+        if t in female_strong:
+            female_score += 3
+            reasons.append(f"female_kw:{t}")
+        if t in MALE_NAMES:
+            male_score += 2
+            reasons.append(f"male_name:{t}")
+        if t in FEMALE_NAMES:
+            female_score += 3
+            reasons.append(f"female_name:{t}")
+
+    male_prefix = False
+    for male_name in MALE_NAMES:
+        if len(male_name) >= 4 and male_name in alpha:
+            male_prefix = alpha.startswith(male_name)
+            male_score += 3 if alpha.startswith(male_name) else 2
+            reasons.append(f"male_sub:{male_name}")
+            break
+    for female_name in FEMALE_NAMES:
+        if len(female_name) >= 4 and female_name in alpha:
+            if male_prefix and alpha.startswith(female_name):
+                continue
+            female_score += 3 if alpha.startswith(female_name) else 2
+            reasons.append(f"female_sub:{female_name}")
+            break
+
+    # Si les signaux femme sont forts ou egalent les signaux homme, on evite
+    # d'exporter en homme.
+    if female_score >= 3 and female_score >= male_score:
+        return "female", female_score, reasons
+    if male_score >= 2 and male_score > female_score:
+        return "male", male_score, reasons
+    if female_score >= 2 and female_score > male_score:
+        return "female", female_score, reasons
+    return "unknown", max(male_score, female_score), reasons
 
 
 def get_gender_emoji(gender: str) -> str:
